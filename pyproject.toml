@@ -3,7 +3,7 @@ name = "repo-vis"
 version = "0.1.0"
 description = "A Python application for visualizing repository structures in 3D using PyVista and Panel."
 authors = ["Eric G. Suchanek, Ph.D <suchanek@mac.com>"]
-license = "MIT"
+license = "GPL"
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -12,6 +12,7 @@ numpy = "*"
 panel = "*"
 param = "*"
 pyvista = {extras = ["jupyter"], version = "^0.45.0"}
+rich = "^14.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

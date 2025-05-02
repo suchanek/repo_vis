@@ -1,3 +1,42 @@
+"""
+Module: visualize_repository_panel
+
+This program provides a Panel-based application for visualizing the structure of a Python repository in 3D.
+It uses PyVista for 3D rendering and Panel for creating an interactive user interface. The application
+analyzes a given repository, extracts classes, methods, and standalone functions, and generates a 3D
+visualization of their relationships.
+
+Key Features:
+- Parses Python files in a repository to extract classes, methods, and functions.
+- Visualizes the repository structure in 3D using spheres, cylinders, and lines to represent classes,
+  methods, and their relationships.
+- Provides an interactive user interface with widgets for customizing visualization parameters,
+  selecting specific classes or functions, and saving the visualization in various formats (HTML, PNG, JPEG).
+- Supports off-screen rendering for generating screenshots.
+
+Classes:
+- RepositoryVisualizer: A parameterized class that manages repository analysis, visualization, and
+  user interactions.
+
+Functions:
+- parse_file(file_path): Parses a Python file to extract classes, methods, and functions.
+- collect_elements(repo_path): Collects all classes, methods, and functions from a repository.
+- fibonacci_sphere(samples, radius, center): Generates points uniformly distributed on a sphere.
+- create_3d_visualization_for_panel(elements, save_path, save_format, ...): Creates a 3D visualization
+  of the repository structure.
+
+Usage:
+Run the script to launch the interactive application. Use the provided widgets to specify the repository
+path, customize visualization parameters, and generate the 3D visualization.
+ - panel serve <path to this script> --show
+
+Author: Eric G. Suchanek, PhD
+Last modified: 2025-05-02 07:54:33
+
+"""
+
+# -*- coding: utf-8 -*-
+
 import ast
 import logging
 import os
@@ -20,10 +59,11 @@ logger = logging.getLogger()
 print("PyVista version:", pv.__version__)
 
 # Set PyVista off-screen rendering
-pv.OFF_SCREEN = os.getenv("PYVISTA_OFF_SCREEN", "false").lower() == "true"
+pv.OFF_SCREEN = False
+
 print("pv.OFF_SCREEN:", pv.OFF_SCREEN)
 
-pn.extension("vtk", sizing_mode="stretch_width")
+pn.extension("vtk", sizing_mode="stretch_both")
 
 # Global plotter
 plotter = pv.Plotter(off_screen=pv.OFF_SCREEN)
@@ -34,24 +74,16 @@ plotter.add_mesh(
     pv.Cube(center=(0, 0, 0), x_length=1, y_length=1, z_length=1), color="gray"
 )
 
-"""
-plotter.add_text(
-    "Waiting for visualization...",
-    position="upper_edge",
-    font_size=14,
-    name="title_text",
-)
-"""
-
 plotter.set_background("white")
-# plotter.view_isometric()
+plotter.enable_anti_aliasing("msaa")
+plotter.enable_parallel_projection()
 plotter.camera.zoom(0.5)  # Zoom out to 50% of the current view
-
-print("Initialized plotter with placeholder cube")
 
 DEFAULT_REP = "/Users/egs/repos/proteusPy"
 # Extract default package name from the repository path
 DEFAULT_PACKAGE_NAME = os.path.basename(DEFAULT_REP)
+
+logger.info("Starting repository visualization for package: %s", DEFAULT_PACKAGE_NAME)
 
 
 def parse_file(file_path):
@@ -111,7 +143,7 @@ def collect_elements(repo_path):
                             print(
                                 f"Skipping duplicate function '{elem['name']}' in {file_path}"
                             )  # Debug
-    print(
+    logger.debug(
         f"Collected elements: {[e['name'] for e in elements if e['type'] == 'class']} (classes), {[e['name'] for e in elements if e['type'] == 'function']} (functions)"
     )  # Debug
     return elements
@@ -158,6 +190,7 @@ def fibonacci_sphere(samples, radius=1.0, center=None):
 
     return points
 
+
 def create_3d_visualization_for_panel(
     elements,
     save_path,
@@ -168,7 +201,7 @@ def create_3d_visualization_for_panel(
 ):
     """Update the global plotter with a 3D visualization of the repository structure and handle screenshots with a separate off-screen plotter."""
     global plotter
-    print("Creating visualization for", save_path)
+    logger.debug("Creating visualization for %s", save_path)
 
     # Reinitialize global plotter for interactive visualization
     plotter = pv.Plotter(off_screen=pv.OFF_SCREEN)
@@ -183,12 +216,14 @@ def create_3d_visualization_for_panel(
         z_length=package_size,
     )
     plotter.add_mesh(package_mesh, color="purple", show_edges=True)
+    """
     plotter.add_text(
         package_name,
         position=package_center + [0, 0, package_size * 1.5],
         font_size=14,
         color="black",
     )
+    """
 
     num_classes = len([e for e in elements if e["type"] == "class"])
     print(
@@ -243,8 +278,9 @@ def create_3d_visualization_for_panel(
             plotter.add_mesh(mesh, color="green", show_edges=True)
 
             line = pv.Line(package_center, pos)
-            plotter.add_mesh(line, color="lightgray", line_width=3)
+            plotter.add_mesh(line, color="lightgray", line_width=1)
 
+            """
             direction = pos - package_center
             if np.linalg.norm(direction) > 0:
                 direction = direction / np.linalg.norm(direction)
@@ -255,6 +291,7 @@ def create_3d_visualization_for_panel(
                 font_size=7,
                 color="black",
             )
+            """
 
     member_radius = member_radius_scale * class_size
     for class_idx, (class_pos, class_elem) in enumerate(
@@ -295,24 +332,26 @@ def create_3d_visualization_for_panel(
     plotter.add_axes()
 
     # Enhanced camera setup
-    plotter.view_isometric()
     bounds = plotter.bounds
     max_dim = max(
         abs(bounds[1] - bounds[0]),
         abs(bounds[3] - bounds[2]),
         abs(bounds[5] - bounds[4]),
     )
-    distance_factor = 3.0
+    # Ensure max_dim accounts for scene size, with a minimum to avoid zero bounds
+    max_dim = max(max_dim, 2 * class_radius, 1.0)
+    distance_factor = 4.0  # Increased to ensure full scene visibility
     plotter.camera_position = [
         (
             distance_factor * max_dim,
             distance_factor * max_dim,
             distance_factor * max_dim,
         ),
-        (0, 0, 0),
-        (0, 0, 1),
+        (0, 0, 0),  # Focal point at scene center
+        (0, 0, 1),  # Up vector
     ]
-    plotter.camera.zoom(0.5)
+    plotter.camera.zoom(0.8)  # Slightly increased zoom for better framing
+
     plotter.render()
 
     # Save the visualization
@@ -336,7 +375,8 @@ def create_3d_visualization_for_panel(
                             color=actor.prop.GetColor(),
                             show_edges=actor.prop.GetEdgeVisibility(),
                             line_width=actor.prop.GetLineWidth(),
-                            smooth_shading=actor.prop.GetInterpolation() != pv.InterpolationType.FLAT,
+                            smooth_shading=actor.prop.GetInterpolation()
+                            != pv.InterpolationType.FLAT,
                         )
 
             # Copy text actors
@@ -358,12 +398,14 @@ def create_3d_visualization_for_panel(
                         if hasattr(actor, "GetTextProperty")
                         else "black"
                     )
+                    """
                     screenshot_plotter.add_text(
                         text,
                         position=position,
                         font_size=font_size,
                         color=color,
                     )
+                    """
 
             # Copy lights
             for light in plotter.renderer.GetLights():
@@ -398,6 +440,7 @@ def create_3d_visualization_for_panel(
                 logger.error(f"Fallback save also failed: {fallback_error}")
 
     return plotter, title_text
+
 
 class RepositoryVisualizer(param.Parameterized):
     repo_path = param.String(
@@ -623,7 +666,7 @@ class_selector = pn.widgets.MultiSelect(
     name="Select Classes to Visualize",
     options=visualizer.available_classes,
     value=visualizer.selected_classes,
-    size=10,
+    size=5,
 )
 class_selector.link(visualizer, value="selected_classes")
 
@@ -641,7 +684,7 @@ function_selector = pn.widgets.MultiSelect(
     name="Select Functions to Visualize",
     options=visualizer.available_functions,
     value=visualizer.selected_functions,
-    size=10,
+    size=5,
 )
 function_selector.link(visualizer, value="selected_functions")
 
@@ -696,7 +739,6 @@ input_panel = pn.Column(
     save_format_select,
     class_radius_slider,
     member_radius_scale_slider,
-    # show_interactive_checkbox removed from UI as requested, but logic remains in the code
     pn.pane.Markdown("## Class Selection"),
     pn.pane.Markdown("Select specific classes to visualize (leave empty to show all):"),
     class_selector,
@@ -709,7 +751,7 @@ input_panel = pn.Column(
     visualize_button,
     status_text,
     result_display,
-    width=250,
+    width=300,
 )
 
 # Initialize VTK pane
@@ -719,7 +761,7 @@ vtkpan = pn.pane.VTK(
     orientation_widget=True,
     enable_keybindings=True,
     min_height=400,
-    min_width=400,  # Changed from width to min_width to be compatible with stretch_both
+    min_width=400,
 )
 print("Initialized VTK pane")
 
