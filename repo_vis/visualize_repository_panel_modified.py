@@ -1,6 +1,10 @@
 # pylint: disable=C0301
 # pylint: disable=C0116
 # pylint: disable=C0115
+# pylint: disable=W0105
+# pylint: disable=W0613
+# pylint: disable=W0612
+# pylint: disable=W0603
 
 """
 Module: visualize_repository_panel
@@ -35,7 +39,7 @@ path, customize visualization parameters, and generate the 3D visualization.
  - panel serve <path to this script> --show
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-02 07:54:33
+Last modified: 2025-05-03
 
 """
 
@@ -51,48 +55,35 @@ import panel as pn
 import param
 import pyvista as pv
 from rich.console import Console
+from rich.logging import RichHandler
 from rich.progress import Progress
 
-# Ensure logging level is set to DEBUG and output is directed to the console
+# Set PyVista to use off-screen rendering for WebGL compatibility
+pv.OFF_SCREEN = True
+if os.getenv("PYVISTA_OFF_SCREEN", "false").lower() == "true":
+    pv.OFF_SCREEN = True
+
+ORIGIN = (0, 0, 0)
+DEFAULT_REP = "/Users/egs/repos/proteusPy"
+DEFAULT_PACKAGE_NAME = os.path.basename(DEFAULT_REP)
+DEFAULT_SAVE_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
+DEFAULT_SAVE_NAME = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
+
+# Configure logging with Rich
+FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+rich_handler = RichHandler(level=logging.INFO)
 logging.basicConfig(
     level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()],
+    format=FORMAT,
+    handlers=[rich_handler],
 )
 logger = logging.getLogger()
 
-# Log PyVista version
+# Log PyVista and VTK versions
 print("PyVista version:", pv.__version__)
+print("VTK version:", pv.vtk_version_info)
 
-# Set PyVista off-screen rendering
-pv.OFF_SCREEN = False
-
-print("pv.OFF_SCREEN:", pv.OFF_SCREEN)
-
-pn.extension("vtk", sizing_mode="stretch_both")
-
-# Global plotter
-plotter = pv.Plotter(off_screen=pv.OFF_SCREEN)
-plotter.clear()
-plotter.add_floor(i_resolution=100, j_resolution=100)
-
-ORIGIN = (0, 0, 0)
-
-# Initialize plotter with a placeholder cube
-plotter.add_mesh(
-    pv.Cube(center=ORIGIN, x_length=1, y_length=1, z_length=1), color="gray"
-)
-
-plotter.set_background("white")
-plotter.enable_anti_aliasing("msaa")
-plotter.enable_parallel_projection()
-plotter.reset_camera()
-
-DEFAULT_REP = "/Users/egs/repos/proteusPy"
-# Extract default package name from the repository path
-DEFAULT_PACKAGE_NAME = os.path.basename(DEFAULT_REP)
-
-logger.info("Starting repository visualization for package: %s", DEFAULT_PACKAGE_NAME)
+pn.extension("vtk", sizing_mode="stretch_both", template="fast")
 
 
 def parse_file(file_path):
@@ -144,20 +135,20 @@ def collect_elements(repo_path):
                             seen_classes.add(elem["name"])
                             elements.append(elem)
                         else:
-                            print(
+                            logger.debug(
                                 f"Skipping duplicate class '{elem['name']}' in {file_path}"
-                            )  # Debug
+                            )
                     elif elem["type"] == "function":
                         if elem["name"] not in seen_functions:
                             seen_functions.add(elem["name"])
                             elements.append(elem)
                         else:
-                            print(
+                            logger.debug(
                                 f"Skipping duplicate function '{elem['name']}' in {file_path}"
-                            )  # Debug
+                            )
     logger.debug(
         f"Collected elements: {[e['name'] for e in elements if e['type'] == 'class']} (classes), {[e['name'] for e in elements if e['type'] == 'function']} (functions)"
-    )  # Debug
+    )
     return elements
 
 
@@ -177,12 +168,10 @@ def fibonacci_sphere(samples, radius=1.0, center=None):
     if center is None:
         center = np.array([0, 0, 0])
 
-    # Handle special cases
     if samples <= 0:
         return []
 
     if samples == 1:
-        # For a single point, place it at the top of the sphere
         return [center + radius * np.array([0, 0, 1])]
 
     points = []
@@ -197,13 +186,13 @@ def fibonacci_sphere(samples, radius=1.0, center=None):
         x = np.cos(theta) * radius_at_y
         z = np.sin(theta) * radius_at_y
 
-        # Scale by radius and shift to center
         points.append(center + radius * np.array([x, y, z]))
 
     return points
 
 
 def create_3d_visualization_for_panel(
+    visualizer,
     elements,
     save_path,
     save_format="html",
@@ -211,35 +200,29 @@ def create_3d_visualization_for_panel(
     member_radius_scale=1.0,
     old_title="",
 ):
-    """Update the global plotter with a 3D visualization of the repository structure and handle screenshots with a separate off-screen plotter."""
-    global plotter
+    """Update the visualizer's plotter with a 3D visualization of the repository structure and handle screenshots with a separate off-screen plotter."""
     logger.debug("Creating visualization for %s", save_path)
 
-    # Reinitialize global plotter for interactive visualization
-    plotter = pv.Plotter(off_screen=pv.OFF_SCREEN)
+    # Reinitialize the visualizer's plotter
+    visualizer.plotter = pv.Plotter(off_screen=True)
+    visualizer.plotter.disable_parallel_projection()
+    visualizer.plotter.enable_anti_aliasing("msaa")
 
-    plotter.add_floor()
-    print("Reinitialized global plotter")
+    visualizer.status = "Setting up visualization environment..."
+    print("Reinitialized plotter")
     package_center = np.array([0, 0, 0])
     package_name = Path(save_path).stem
     package_size = 0.8
-    package_mesh = pv.Cube(
+    package_mesh = pv.Icosahedron(
         center=package_center,
-        x_length=package_size,
-        y_length=package_size,
-        z_length=package_size,
+        radius=package_size,
     )
-    plotter.add_mesh(package_mesh, color="purple", show_edges=True, smooth_shading=True)
-    """
-    plotter.add_text(
-        package_name,
-        position=package_center + [0, 0, package_size * 1.5],
-        font_size=14,
-        color="black",
+    visualizer.plotter.add_mesh(
+        package_mesh, color="purple", show_edges=True, smooth_shading=True
     )
-    """
 
     num_classes = len([e for e in elements if e["type"] == "class"])
+    visualizer.status = f"Rendering {num_classes} classes..."
     print(
         "Rendering",
         num_classes,
@@ -262,7 +245,7 @@ def create_3d_visualization_for_panel(
         class_positions.append(pos)
         class_names.append(element["name"])
         mesh = pv.Dodecahedron(radius=class_size / 2, center=pos)
-        plotter.add_mesh(
+        visualizer.plotter.add_mesh(
             mesh,
             color="red",
             show_edges=True,
@@ -273,7 +256,7 @@ def create_3d_visualization_for_panel(
             direction = direction / np.linalg.norm(direction)
 
         line = pv.Line(package_center, pos)
-        plotter.add_mesh(line, color="gray", line_width=4, smooth_shading=True)
+        visualizer.plotter.add_mesh(line, color="black", line_width=2)
 
     method_size = 0.3 * 0.75
     function_size = 0.3 * 0.5
@@ -281,6 +264,7 @@ def create_3d_visualization_for_panel(
     # Add standalone functions to the visualization
     num_functions = len([e for e in elements if e["type"] == "function"])
     if num_functions > 0:
+        visualizer.status = f"Rendering {num_functions} functions..."
         print(f"Rendering {num_functions} functions")
         function_positions = fibonacci_sphere(
             num_functions, radius=class_radius * 0.4, center=package_center
@@ -298,17 +282,16 @@ def create_3d_visualization_for_panel(
                     center=pos,
                     direction=(0, 0, 1),
                 )
-                plotter.add_mesh(
+                visualizer.plotter.add_mesh(
                     mesh, color="green", show_edges=True, smooth_shading=True
                 )
 
                 line = pv.Line(package_center, pos)
-                plotter.add_mesh(
-                    line, color="lightgray", line_width=1, smooth_shading=True
-                )
+                visualizer.plotter.add_mesh(line, color="lightgray", line_width=1)
 
                 progress.update(task, advance=1)
 
+    visualizer.status = "Rendering class methods..."
     member_radius = member_radius_scale * class_size
     for class_idx, (class_pos, class_elem) in enumerate(
         zip(class_positions, [e for e in elements if e["type"] == "class"])
@@ -327,19 +310,22 @@ def create_3d_visualization_for_panel(
                 for j, member_name in enumerate(members):
                     member_pos = method_positions[j]
                     sphere = pv.Sphere(radius=method_size / 2, center=member_pos)
-                    plotter.add_mesh(
+                    visualizer.plotter.add_mesh(
                         sphere, color="blue", show_edges=False, smooth_shading=True
                     )
 
                     line = pv.Line(class_pos, member_pos)
-                    plotter.add_mesh(
-                        line, color="gray", line_width=2, smooth_shading=True
-                    )
+                    visualizer.plotter.add_mesh(line, color="gray", line_width=1)
 
                     progress.update(task, advance=1)
 
-    plotter.add_light(pv.Light(position=(10, 10, 10), color="white", intensity=1.0))
-    plotter.add_light(pv.Light(position=(-10, -10, 10), color="white", intensity=0.8))
+    visualizer.status = "Finalizing visualization scene..."
+    visualizer.plotter.add_light(
+        pv.Light(position=(50, 100, 100), color="white", intensity=1.0)
+    )
+    visualizer.plotter.add_light(
+        pv.Light(position=(0, 0, 10), color="white", intensity=0.8)
+    )
 
     num_classes = len([e for e in elements if e["type"] == "class"])
     num_methods = sum(
@@ -347,97 +333,66 @@ def create_3d_visualization_for_panel(
     )
     num_functions = len([e for e in elements if e["type"] == "function"])
     title_text = f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions}"
-    plotter.add_text(
+    visualizer.plotter.add_text(
         title_text,
         position="upper_edge",
         font_size=14,
         color="black",
     )
-    plotter.set_background("white")
-    plotter.add_axes()
+    visualizer.plotter.set_background("lightgray")
+    visualizer.plotter.add_axes()
 
-    # Enhanced camera setup
-    bounds = plotter.bounds
+    # Simplified camera setup
+    bounds = visualizer.plotter.bounds
     max_dim = max(
         abs(bounds[1] - bounds[0]),
         abs(bounds[3] - bounds[2]),
         abs(bounds[5] - bounds[4]),
+        1.0,
     )
-    # Ensure max_dim accounts for scene size, with a minimum to avoid zero bounds
-    max_dim = max(max_dim, 2 * class_radius, 1.0)
-    distance_factor = 4.0  # Increased to ensure full scene visibility
-    plotter.camera_position = [
+    distance_factor = 4.0
+    visualizer.plotter.camera_position = [
         (
             distance_factor * max_dim,
             distance_factor * max_dim,
             distance_factor * max_dim,
         ),
-        ORIGIN,  # Focal point at scene center
-        (0, 0, 1),  # Up vector
+        ORIGIN,
+        (0, 0, 1),
     ]
-    # plotter.camera.zoom(0.8)  # Slightly increased zoom for better framing
-    plotter.show_bounds(grid="front", location="outer", all_edges=True)
-    plotter.show_grid()
-    plotter.reset_camera()
-    plotter.render()
+
+    visualizer.plotter.enable_anti_aliasing("msaa")
+    visualizer.plotter.render()
 
     # Save the visualization
+    visualizer.status = "Saving visualization..."
     save_path = Path(save_path).with_suffix(f".{save_format}")
     try:
         if save_format == "html":
-            plotter.export_html(save_path)
+            visualizer.plotter.export_html(save_path)
             print("Saved HTML visualization to", save_path)
         elif save_format in ["png", "jpeg"]:
-            # Create a new off-screen plotter for screenshots
             screenshot_plotter = pv.Plotter(off_screen=True)
-
-            plotter.add_floor()
+            screenshot_plotter.enable_anti_aliasing("msaa")
             print("Created off-screen plotter for screenshot")
 
-            # Copy meshes from global plotter
-            for actor in plotter.actors.values():
+            # Copy meshes from visualizer's plotter
+            for actor in visualizer.plotter.actors.values():
                 if isinstance(actor, pv.Actor):
                     if hasattr(actor, "mapper") and actor.mapper.GetInput():
                         mesh = actor.mapper.GetInput()
+                        interpolation = actor.prop.GetInterpolation()
+                        smooth_shading = interpolation > 0
                         screenshot_plotter.add_mesh(
                             mesh,
                             color=actor.prop.GetColor(),
                             show_edges=actor.prop.GetEdgeVisibility(),
                             line_width=actor.prop.GetLineWidth(),
-                            smooth_shading=actor.prop.GetInterpolation()
-                            != pv.InterpolationType.FLAT,
+                            smooth_shading=smooth_shading,
                         )
 
-            # Copy text actors
-            for actor_key, actor in plotter.actors.items():
-                if "text" in actor_key.lower() and hasattr(actor, "GetText"):
-                    text = actor.GetText()
-                    position = (
-                        actor.GetPosition()
-                        if hasattr(actor, "GetPosition")
-                        else "upper_edge"
-                    )
-                    font_size = (
-                        actor.GetTextProperty().GetFontSize()
-                        if hasattr(actor, "GetTextProperty")
-                        else 14
-                    )
-                    color = (
-                        actor.GetTextProperty().GetColor()
-                        if hasattr(actor, "GetTextProperty")
-                        else "black"
-                    )
-                    """
-                    screenshot_plotter.add_text(
-                        text,
-                        position=position,
-                        font_size=font_size,
-                        color=color,
-                    )
-                    """
-
             # Copy lights
-            for light in plotter.renderer.GetLights():
+            for light in visualizer.plotter.renderer.GetLights():
                 screenshot_plotter.add_light(
                     pv.Light(
                         position=light.GetPosition(),
@@ -450,25 +405,29 @@ def create_3d_visualization_for_panel(
             screenshot_plotter.add_axes()
 
             # Copy camera settings
-            screenshot_plotter.camera_position = plotter.camera_position
-            screenshot_plotter.set_background("white")
+            screenshot_plotter.camera_position = visualizer.plotter.camera_position
+            screenshot_plotter.set_background("lightgray")
 
             # Render and save screenshot
             print("Saving screenshot with off-screen plotter")
             screenshot_plotter.screenshot(save_path, window_size=[1200, 800])
-            screenshot_plotter.close()  # Clean up
+            screenshot_plotter.close()
             print("Saved screenshot to", save_path)
     except Exception as e:
         logger.error("Failed to save visualization: %s", e)
+        visualizer.status = f"Error saving visualization: {str(e)}"
         if save_format in ["png", "jpeg"]:
             fallback_path = Path(save_path).with_suffix(".html")
             try:
-                plotter.export_html(fallback_path)
+                visualizer.plotter.export_html(fallback_path)
                 logger.info(f"Saved fallback HTML visualization to {fallback_path}")
+                visualizer.status = (
+                    f"Saved fallback HTML visualization to {fallback_path}"
+                )
             except Exception as fallback_error:
                 logger.error(f"Fallback save also failed: {fallback_error}")
 
-    return plotter, title_text
+    return visualizer.plotter, title_text
 
 
 class RepositoryVisualizer(param.Parameterized):
@@ -522,8 +481,16 @@ class RepositoryVisualizer(param.Parameterized):
 
     def __init__(self, **params):
         super().__init__(**params)
+        self.plotter = pv.Plotter(off_screen=True)
+        self.plotter.add_mesh(
+            pv.Icosahedron(center=ORIGIN, radius=1.0),
+            color="purple",
+        )
+        self.plotter.set_background("lightgray")
+        self.plotter.enable_anti_aliasing("msaa")
+        self.plotter.disable_parallel_projection()
         self.elements = []
-        self.update_classes()  # Automatically parse default repository
+        self.update_classes()
 
     @param.depends("repo_path", watch=True)
     def update_classes(self):
@@ -532,25 +499,20 @@ class RepositoryVisualizer(param.Parameterized):
             self.status = "Analyzing repository..."
             self.elements = collect_elements(self.repo_path)
 
-            # Process classes
             class_names = sorted(
                 [e["name"] for e in self.elements if e["type"] == "class"]
-            )  # Sort classes
-            print("Found classes:", class_names)
+            )
             self.selected_classes = []
             self.available_classes = class_names
             self.param.selected_classes.objects = class_names
 
-            # Process functions
             function_names = sorted(
                 [e["name"] for e in self.elements if e["type"] == "function"]
-            )  # Sort functions
-            print("Found functions:", function_names)
+            )
             self.selected_functions = []
             self.available_functions = function_names
             self.param.selected_functions.objects = function_names
 
-            # Update save path to match the repository name when repo path changes
             self.save_path = os.path.basename(self.repo_path)
             self.status = f"Found {len(class_names)} classes and {len(function_names)} functions in the repository."
         else:
@@ -575,22 +537,17 @@ class RepositoryVisualizer(param.Parameterized):
             return
         self.status = "Creating visualization..."
 
-        # Filter elements based on selection
         filtered_elements = []
-
-        # Add selected classes (or all classes if none selected)
         if self.selected_classes:
             class_names = self.selected_classes
             for e in self.elements:
                 if e["type"] == "class" and e["name"] in class_names:
                     filtered_elements.append(e)
         else:
-            # If no classes selected, include all classes
             for e in self.elements:
                 if e["type"] == "class":
                     filtered_elements.append(e)
 
-        # Add selected functions (or all functions if none selected and include_functions is True)
         if self.include_functions:
             if self.selected_functions:
                 function_names = self.selected_functions
@@ -598,12 +555,10 @@ class RepositoryVisualizer(param.Parameterized):
                     if e["type"] == "function" and e["name"] in function_names:
                         filtered_elements.append(e)
             else:
-                # If no functions selected but include_functions is True, include all functions
                 for e in self.elements:
                     if e["type"] == "function":
                         filtered_elements.append(e)
 
-        # Update status message
         status_parts = []
         if self.selected_classes:
             status_parts.append(f"Selected classes: {', '.join(self.selected_classes)}")
@@ -621,7 +576,9 @@ class RepositoryVisualizer(param.Parameterized):
             save_path = f"{save_path}.{self.save_format}"
         print("Save path:", save_path)
         try:
+            self.plotter.clear()
             _pl, old_title = create_3d_visualization_for_panel(
+                self,
                 filtered_elements,
                 save_path,
                 self.save_format,
@@ -631,7 +588,7 @@ class RepositoryVisualizer(param.Parameterized):
             )
             self.old_title = old_title
             print("Updating VTK pane")
-            vtkpan.object = plotter.ren_win
+            vtkpan.object = self.plotter.ren_win
             self.status = f"Visualization saved to {save_path}"
             self.old_title = old_title
         except Exception as e:
@@ -645,6 +602,17 @@ class RepositoryVisualizer(param.Parameterized):
     def browse_save(self, event=None):
         self.status = "Please enter the save path manually in the text field."
         print("Browse save called")
+
+    def set_window_title(self):
+        """
+        Sets the window title using values from the global loader.
+        """
+
+        win_title = self.old_title
+        pn.state.template.param.update(title=win_title)
+
+        mess = f"Set Window Title: {win_title}"
+        print(mess)
 
 
 # Create the visualizer instance
@@ -683,13 +651,6 @@ member_radius_scale_slider = pn.widgets.FloatSlider(
     value=visualizer.member_radius_scale,
 )
 member_radius_scale_slider.link(visualizer, value="member_radius_scale")
-
-"""
-show_interactive_checkbox = pn.widgets.Checkbox(
-    name="Show Interactive Visualization", value=visualizer.show_interactive
-)
-show_interactive_checkbox.link(visualizer, value="show_interactive")
-"""
 
 class_selector = pn.widgets.MultiSelect(
     name="Select Classes to Visualize",
@@ -735,33 +696,90 @@ include_functions_checkbox.link(visualizer, value="include_functions")
 visualize_button = pn.widgets.Button(name="Visualize Repository", button_type="success")
 visualize_button.on_click(visualizer.visualize)
 
-status_text = pn.widgets.StaticText(name="Status", value=visualizer.status)
-visualizer.param.watch(lambda event: setattr(status_text, "value", event.new), "status")
 
-result_display = pn.pane.HTML("")
+# Create a reset camera button
+def reset_camera(event):
+    print("Camera position before:", visualizer.plotter.camera_position)
+    visualizer.plotter.disable_parallel_projection()
+    bounds = visualizer.plotter.bounds
+    max_dim = max(
+        abs(bounds[1] - bounds[0]),
+        abs(bounds[3] - bounds[2]),
+        abs(bounds[5] - bounds[4]),
+        1.0,
+    )
+    distance_factor = 4.0
+    new_position = [
+        (
+            distance_factor * max_dim,
+            distance_factor * max_dim,
+            distance_factor * max_dim,
+        ),
+        ORIGIN,
+        (0, 0, 1),
+    ]
+    # visualizer.plotter.camera_position = new_position
+    visualizer.plotter.render()
+    print("Camera position after:", visualizer.plotter.camera_position)
+    vtkpan.object = visualizer.plotter.ren_win
+    print("Camera reset with new position")
 
 
-# Update result display
-def update_result(event):
-    if visualizer.status.startswith("Visualization saved to"):
-        save_path = visualizer.status.split("Visualization saved to ")[-1].strip()
+reset_camera_button = pn.widgets.Button(name="Reset Camera", button_type="primary")
+reset_camera_button.on_click(reset_camera)
+
+# Create a single-line status display
+status_display = pn.pane.HTML(
+    "Ready",
+    height=40,
+    margin=(5, 10),
+)
+status_display.styles = dict(
+    border="1px solid #ddd",
+    overflow_y="hidden",
+    overflow_x="hidden",
+    white_space="nowrap",
+    text_overflow="ellipsis",
+    padding="8px 12px",
+    background_color="#f5f5f5",
+    font_size="14px",
+    box_sizing="border-box",
+    line_height="24px",
+)
+
+
+# Update status display with formatted text
+def update_status(event):
+    status = event.new
+    if status.startswith("Visualization saved to"):
+        save_path = status.split("Visualization saved to ")[-1].strip()
         file_url = f"file://{os.path.abspath(save_path)}"
-        result_display.object = (
-            f'<div style="margin-top: 20px; padding: 15px; background-color: #f0f0f0; border-radius: 5px;">'
-            f"<h3>Visualization Created</h3>"
-            f"<p>The visualization has been saved to: <strong>{save_path}</strong></p>"
-            f'<a href="{file_url}" target="_blank" style="font-size: 16px; padding: 10px; '
-            f"background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; "
-            f"</div>"
+        status_display.object = (
+            f"<b>Success!</b> Saved to: <span style='font-size:12px'>{save_path}</span> "
+            f"<a href='{file_url}' target='_blank' style='font-size:12px; "
+            f"background-color:#4CAF50; color:white; text-decoration:none; "
+            f"border-radius:3px; padding:3px 6px; display:inline-block;'>View</a>"
         )
-        print("Updated result display for", save_path)
+    elif status.startswith("Error"):
+        status_display.object = (
+            f"<span style='color:#cc0000'><b>Error:</b> {status[6:]}</span>"
+        )
+    elif "Analyzing" in status or "Creating" in status:
+        status_display.object = f"<span style='color:#0066cc'><b>⏳ {status}</b></span>"
+    elif "Found" in status:
+        parts = status.split("Found ")
+        status_display.object = (
+            f"<span style='color:#008800'><b>✓</b> Found {parts[1]}</span>"
+        )
+    else:
+        status_display.object = status
+    visualizer.set_window_title()
 
 
-visualize_button.on_click(update_result)
+visualizer.param.watch(update_status, "status")
 
 # Create input panel
 input_panel = pn.Column(
-    pn.pane.Markdown("# Repository Visualizer"),
     pn.pane.Markdown("## Input Parameters"),
     repo_path_input,
     save_path_input,
@@ -777,25 +795,46 @@ input_panel = pn.Column(
         "Select specific functions to visualize (leave empty to show all):"
     ),
     function_selector,
-    visualize_button,
-    status_text,
-    result_display,
     width=300,
 )
 
 # Initialize VTK pane
 vtkpan = pn.pane.VTK(
-    plotter.ren_win,
+    visualizer.plotter.ren_win,
     sizing_mode="stretch_both",
     orientation_widget=True,
     enable_keybindings=True,
-    min_height=400,
-    min_width=400,
 )
 print("Initialized VTK pane")
 
+# Set button width
+visualize_button.width = 200
+visualize_button.sizing_mode = "fixed"
+
+# Status display takes remaining width
+status_display.sizing_mode = "stretch_width"
+
+# Set reset camera button width
+reset_camera_button.width = 150
+reset_camera_button.sizing_mode = "fixed"
+
+# Create a row with buttons and status display
+button_status_row = pn.Row(
+    visualize_button,
+    reset_camera_button,
+    status_display,
+    sizing_mode="stretch_width",
+)
+
+# Create visualization column
+visualization_column = pn.Column(
+    button_status_row,
+    vtkpan,
+    sizing_mode="stretch_both",
+)
+
 # Create main layout
-main_layout = pn.Row(input_panel, vtkpan)
+main_layout = pn.Row(input_panel, visualization_column)
 
 # Serve the app
 if __name__ == "__main__":
