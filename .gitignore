@@ -175,5 +175,7 @@ cython_debug/
 .ds_store
 
 *.html
+.bash_profile
+
 
 
