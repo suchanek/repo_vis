@@ -15,7 +15,7 @@ Usage:
 Run: python visualize_repository_qt.py
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-03
+Last modified: 2025-05-04 22:25:25
 """
 
 import ast
@@ -45,7 +45,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from pyvistaqt import QtInteractor
+from rich import print as rprint
+from rich.console import Console
 from rich.logging import RichHandler
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 # Constants
 ORIGIN = (0, 0, 0)
@@ -55,7 +65,7 @@ DEFAULT_SAVE_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
 DEFAULT_SAVE_NAME = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
+logging.basicConfig(level=logging.DEBUG, handlers=[RichHandler()])
 logger = logging.getLogger()
 
 
@@ -184,20 +194,54 @@ def create_3d_visualization(
         num_classes, radius=class_radius, center=package_center
     )
     class_index = 0
-    for element in elements:
-        if element["type"] != "class":
-            continue
-        pos = class_positions[class_index]
-        class_index += 1
-        mesh = pv.Dodecahedron(radius=0.75 / 2, center=pos)
-        plotter.add_mesh(mesh, color="red", show_edges=False, smooth_shading=False)
-        line = pv.Cylinder(
-            radius=0.025,
-            height=np.linalg.norm(pos - package_center),
-            center=(pos + package_center) / 2,
-            direction=pos - package_center,
-        )
-        plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
+
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+
+    # Create a console for output
+    console = Console()
+    rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        expand=True,
+    ) as progress:
+        task = progress.add_task("[bold red]Rendering classes...", total=num_classes)
+
+        for element in elements:
+            if element["type"] != "class":
+                continue
+            pos = class_positions[class_index]
+            class_index += 1
+            mesh = pv.Dodecahedron(radius=0.75 / 2, center=pos)
+            plotter.add_mesh(mesh, color="red", show_edges=False, smooth_shading=False)
+            line = pv.Cylinder(
+                radius=0.025,
+                height=np.linalg.norm(pos - package_center),
+                center=(pos + package_center) / 2,
+                direction=pos - package_center,
+            )
+            plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
+
+            # Update progress bar every 10% instead of every iteration
+            update_interval = max(1, int(num_classes * 0.1))  # 10% of total classes
+            if class_index % update_interval == 0 or class_index == num_classes:
+                progress.update(task, completed=class_index)
+                # Update the UI to show progress in real-time
+                QApplication.processEvents()
+
+    # Print completion message
+    rprint("[bold green]Finished rendering classes![/bold green]")
 
     num_functions = len([e for e in elements if e["type"] == "function"])
     if num_functions > 0:
@@ -206,36 +250,113 @@ def create_3d_visualization(
         function_positions = fibonacci_sphere(
             num_functions, radius=class_radius * 0.4, center=package_center
         )
-        for i, element in enumerate([e for e in elements if e["type"] == "function"]):
-            pos = function_positions[i]
-            mesh = pv.Cylinder(
-                radius=0.15 / 2, height=0.15 / 2, center=pos, direction=(0, 0, 1)
+
+        # Create a progress bar for function rendering
+        rprint(
+            f"[bold green]Starting to render {num_functions} functions...[/bold green]"
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(
+                bar_width=40, complete_style="green", finished_style="bold green"
+            ),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            expand=True,
+        ) as progress:
+            func_task = progress.add_task(
+                "[bold green]Rendering functions...", total=num_functions
             )
-            plotter.add_mesh(mesh, color="green", show_edges=False, smooth_shading=True)
-            line = pv.Line(package_center, pos)
-            plotter.add_mesh(line, color="green", line_width=1)
-            plotter.reset_camera()
+
+            for i, element in enumerate(
+                [e for e in elements if e["type"] == "function"]
+            ):
+                pos = function_positions[i]
+                mesh = pv.Cylinder(
+                    radius=0.15 / 2, height=0.15 / 2, center=pos, direction=(0, 0, 1)
+                )
+                plotter.add_mesh(
+                    mesh, color="green", show_edges=False, smooth_shading=True
+                )
+                line = pv.Line(package_center, pos)
+                plotter.add_mesh(line, color="green", line_width=1)
+                plotter.reset_camera()
+
+                # Update progress bar every 10% instead of every iteration
+                update_interval = max(
+                    1, int(num_functions * 0.1)
+                )  # 10% of total functions
+                if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
+                    progress.update(func_task, completed=i + 1)
+                    QApplication.processEvents()
+
+        rprint("[bold green]Finished rendering functions![/bold green]")
 
     visualizer.status = "Rendering methods..."
     QApplication.processEvents()
-    for class_pos, class_elem in zip(
-        class_positions, [e for e in elements if e["type"] == "class"]
-    ):
-        members = class_elem.get("methods", [])
-        if members:
-            method_positions = fibonacci_sphere(
-                len(members), radius=member_radius_scale * 0.75, center=class_pos
+
+    # Count total methods for progress bar
+    total_methods = sum(
+        len(class_elem.get("methods", []))
+        for class_elem in [e for e in elements if e["type"] == "class"]
+    )
+
+    if total_methods > 0:
+        # Create a progress bar for method rendering
+        rprint(
+            f"[bold green]Starting to render {total_methods} methods...[/bold green]"
+        )
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(
+                bar_width=40, complete_style="green", finished_style="bold green"
+            ),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            expand=True,
+        ) as progress:
+            method_task = progress.add_task(
+                "[bold blue]Rendering methods...", total=total_methods
             )
-            for j, _ in enumerate(members):
-                sphere = pv.Sphere(radius=0.225 / 2, center=method_positions[j])
-                plotter.add_mesh(
-                    sphere, color="blue", show_edges=False, smooth_shading=True
-                )
-                line = pv.Line(class_pos, method_positions[j])
-                plotter.add_mesh(line, color="blue", line_width=1)
+
+            method_count = 0
+            for class_pos, class_elem in zip(
+                class_positions, [e for e in elements if e["type"] == "class"]
+            ):
+                members = class_elem.get("methods", [])
+                if members:
+                    method_positions = fibonacci_sphere(
+                        len(members),
+                        radius=member_radius_scale * 0.75,
+                        center=class_pos,
+                    )
+                    for j, _ in enumerate(members):
+                        sphere = pv.Sphere(radius=0.225 / 2, center=method_positions[j])
+                        plotter.add_mesh(
+                            sphere, color="blue", show_edges=False, smooth_shading=True
+                        )
+                        line = pv.Line(class_pos, method_positions[j])
+                        plotter.add_mesh(line, color="blue", line_width=1)
+                        method_count += 1
+
+                        # Update progress bar every 10% instead of every iteration
+                        update_interval = max(
+                            1, int(total_methods * 0.1)
+                        )  # 10% of total methods
+                        if (
+                            method_count % update_interval == 0
+                            or method_count == total_methods
+                        ):
+                            progress.update(method_task, completed=method_count)
+                            QApplication.processEvents()
+
+        rprint("[bold green]Finished rendering methods![/bold green]")
 
     plotter.reset_camera()
-    visualizer.status = "Finalizing scene..."
     QApplication.processEvents()
 
     num_methods = sum(
@@ -244,8 +365,8 @@ def create_3d_visualization(
 
     title_text = f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions}"
 
-    plotter.reset_camera()
     plotter.render()
+    visualizer.status = "Scene generation complete."
 
     return plotter, title_text
 
@@ -260,7 +381,7 @@ class RepositoryVisualizer(param.Parameterized):
         default=f"{DEFAULT_PACKAGE_NAME} 3d visualization", doc="Window title"
     )
     save_format = param.Selector(
-        objects=["html", "png", "jpeg"], default="html", doc="Output format"
+        objects=["html", "png", "jpg"], default="html", doc="Output format"
     )
     class_radius = param.Number(
         default=4.0, bounds=(1.0, 10.0), step=0.5, doc="Class radius"
@@ -375,17 +496,18 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             """
             QWidget { font-family: Arial, sans-serif; font-size: 12px; }
-            QLineEdit, QComboBox, QListWidget, QCheckBox, QPushButton, QLabel { margin: 5px; padding: 5px; }
+            QLineEdit, QComboBox, QListWidget, QCheckBox, QPushButton, QLabel { margin: 2px; padding: 3px; }
             QLineEdit, QComboBox, QListWidget { border: 1px solid #ddd; border-radius: 3px; }
-            QPushButton { background-color: '#4CAF50'; color: white; border: none; border-radius: 3px; padding: 8px; }
-            QPushButton#reset { background-color: '#2196F3'; }
-            QLabel { border: 1px solid #ddd; background-color: '#f5f5f5'; padding: 8px; }
+            QPushButton { background-color: '#4CAF50'; color: white; border: none; border-radius: 3px; padding: 6px; }
+            QPushButton#reset { background-color: '#FFEB3B'; color: black; }
+            QPushButton#reset-view { background-color: '#FFEB3B'; color: black; }
+            QLabel { border: 1px solid #ddd; background-color: '#f5f5f5'; padding: 4px; }
             """
         )
 
         control_panel = QVBoxLayout()
-        control_panel.setSpacing(10)
-        control_panel.setContentsMargins(10, 10, 10, 10)
+        control_panel.setSpacing(3)  # Reduced from 10
+        control_panel.setContentsMargins(8, 8, 8, 8)  # Reduced from 10,10,10,10
 
         control_panel.addWidget(
             QLabel(
@@ -395,22 +517,32 @@ class MainWindow(QMainWindow):
             )
         )
 
-        control_panel.addWidget(QLabel("Repository Path"))
+        repo_path_label = QLabel("<b style='font-size:13px;'>Repository Path</b>")
+        control_panel.addWidget(repo_path_label)
         self.repo_path_input = QLineEdit(self.visualizer.repo_path)
         self.repo_path_input.setPlaceholderText("Enter repository path")
         control_panel.addWidget(self.repo_path_input)
 
-        control_panel.addWidget(QLabel("Save Path"))
+        save_path_label = QLabel("<b style='font-size:13px;'>Save Path</b>")
+        control_panel.addWidget(save_path_label)
         self.save_path_input = QLineEdit(self.visualizer.save_path)
         self.save_path_input.setPlaceholderText("Enter save path")
         control_panel.addWidget(self.save_path_input)
 
-        control_panel.addWidget(QLabel("Save Format"))
+        save_format_label = QLabel("<b style='font-size:13px;'>Save Format</b>")
+        control_panel.addWidget(save_format_label)
         self.save_format_select = QComboBox()
-        self.save_format_select.addItems(["html", "png", "jpeg"])
+        self.save_format_select.addItems(["html", "png", "jpg"])
         self.save_format_select.setCurrentText(self.visualizer.save_format)
         control_panel.addWidget(self.save_format_select)
 
+        # Visualization Parameters title
+        vis_params_label = QLabel(
+            "<b style='font-size:13px;'>Visualization Parameters</b>"
+        )
+        control_panel.addWidget(vis_params_label)
+
+        # Class Radius slider
         control_panel.addWidget(QLabel("Class Radius"))
         self.class_radius_slider = QSlider(Qt.Horizontal)
         self.class_radius_slider.setMinimum(10)
@@ -420,16 +552,17 @@ class MainWindow(QMainWindow):
         self.class_radius_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.class_radius_slider)
 
-        control_panel.addWidget(QLabel("Member Radius Scale"))
+        # Member Radius Scale slider
         self.member_radius_scale_slider = QSlider(Qt.Horizontal)
         self.member_radius_scale_slider.setMinimum(5)
         self.member_radius_scale_slider.setMaximum(30)
         self.member_radius_scale_slider.setValue(
             int(self.visualizer.member_radius_scale * 10)
         )
-        self.member_radius_scale_slider.setTickInterval(2)
+        self.member_radius_scale_slider.setTickInterval(1)
         self.member_radius_scale_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.member_radius_scale_slider)
+        control_panel.addWidget(QLabel("Member Radius Scale"))
 
         control_panel.addWidget(
             QLabel(
@@ -441,6 +574,7 @@ class MainWindow(QMainWindow):
         control_panel.addWidget(QLabel("Select classes (empty for all):"))
         self.class_selector = QListWidget()
         self.class_selector.setSelectionMode(QListWidget.MultiSelection)
+        self.class_selector.setMaximumHeight(80)  # Limit height
         for item in self.visualizer.available_classes:
             self.class_selector.addItem(item)
         control_panel.addWidget(self.class_selector)
@@ -460,8 +594,10 @@ class MainWindow(QMainWindow):
         self.include_functions_checkbox.setChecked(self.visualizer.include_functions)
         control_panel.addWidget(self.include_functions_checkbox)
         control_panel.addWidget(QLabel("Select functions (empty for all):"))
+
         self.function_selector = QListWidget()
         self.function_selector.setSelectionMode(QListWidget.MultiSelection)
+        self.function_selector.setMaximumHeight(80)  # Limit height
         for item in self.visualizer.available_functions:
             self.function_selector.addItem(item)
         control_panel.addWidget(self.function_selector)
@@ -473,21 +609,34 @@ class MainWindow(QMainWindow):
         vis_panel.setContentsMargins(10, 10, 10, 10)
 
         button_row = QHBoxLayout()
+
         self.visualize_button = QPushButton("Visualize Repository")
-        self.visualize_button.setFixedWidth(200)
+        self.visualize_button.setFixedWidth(150)
         button_row.addWidget(self.visualize_button)
-        self.reset_camera_button = QPushButton("Reset Camera")
-        self.reset_camera_button.setFixedWidth(200)
+
+        self.save_button = QPushButton("Save View")
+        self.save_button.setFixedWidth(150)
+        button_row.addWidget(self.save_button)
+
+        self.reset_camera_button = QPushButton("Reset Zoom")
+        self.reset_camera_button.setFixedWidth(100)
         self.reset_camera_button.setObjectName("reset")
         button_row.addWidget(self.reset_camera_button)
-        self.save_button = QPushButton("Save View")
-        self.save_button.setFixedWidth(200)
-        button_row.addWidget(self.save_button)
+
+        self.reset_view_button = QPushButton("Reset Orientation")
+        self.reset_view_button.setFixedWidth(110)
+        self.reset_view_button.setObjectName("reset-view")
+        button_row.addWidget(self.reset_view_button)
+
+        # Connect the reset view button to a reset view function
+        self.reset_view_button.clicked.connect(self.reset_view)
 
         # Connect the save button to a save function
         self.save_button.clicked.connect(self.save_current_view)
+
         self.status_display = QLabel("Ready")
         self.status_display.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.status_display.setStyleSheet("font-weight: bold; font-size: 14px;")
         button_row.addWidget(self.status_display, stretch=1)
 
         self.vtk_widget = QtInteractor(self)
@@ -496,8 +645,12 @@ class MainWindow(QMainWindow):
 
         control_widget = QWidget()
         control_widget.setLayout(control_panel)
-        control_widget.setFixedWidth(350)
+        control_widget.setFixedWidth(375)
         main_layout.addWidget(control_widget)
+
+        main_layout.setContentsMargins(0, 0, 0, 0)  # No margins for the main layout
+        main_layout.setSpacing(5)  # No spacing between control and visualization panels
+
         vis_widget = QWidget()
         vis_widget.setLayout(vis_panel)
         main_layout.addWidget(vis_widget, stretch=1)
@@ -511,8 +664,7 @@ class MainWindow(QMainWindow):
 
         # Adjust control panel to allow vertical stretching
         control_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        control_panel.setContentsMargins(10, 10, 10, 10)
-        control_panel.setSpacing(5)  # Reduce spacing to make it more compact
+        # Spacing and margins already set above
 
         # Adjust control panel to allow shrinking vertically
         control_widget.setSizePolicy(
@@ -520,12 +672,17 @@ class MainWindow(QMainWindow):
         )
         control_panel.setSizeConstraint(QVBoxLayout.SetMinimumSize)
 
-        self.repo_path_input.textChanged.connect(self.update_repo_path)
+        self.repo_path_input.editingFinished.connect(self.update_repo_path)
         self.save_path_input.textChanged.connect(self.update_save_path)
         self.save_format_select.currentTextChanged.connect(self.update_save_format)
-        self.class_radius_slider.valueChanged.connect(self.update_class_radius)
-        self.member_radius_scale_slider.valueChanged.connect(
-            self.update_member_radius_scale
+        # Connect to sliderReleased instead of valueChanged for better performance
+        self.class_radius_slider.sliderReleased.connect(
+            lambda: self.update_class_radius(self.class_radius_slider.value())
+        )
+        self.member_radius_scale_slider.sliderReleased.connect(
+            lambda: self.update_member_radius_scale(
+                self.member_radius_scale_slider.value()
+            )
         )
         self.class_selector.itemSelectionChanged.connect(self.update_selected_classes)
         self.function_selector.itemSelectionChanged.connect(
@@ -548,7 +705,9 @@ class MainWindow(QMainWindow):
         for widget in self.findChildren(QLabel):
             widget.setStyleSheet("background: transparent; border: none;")
 
-    def update_repo_path(self, text):
+    def update_repo_path(self):
+        text = self.repo_path_input.text()
+        self.visualizer.status = "Loading Repository..."
         self.visualizer.repo_path = text
 
     def update_save_path(self, text):
@@ -559,11 +718,13 @@ class MainWindow(QMainWindow):
 
     def update_class_radius(self, value):
         self.visualizer.class_radius = value / 10.0
-        self.class_radius_value.setText(f"{self.visualizer.class_radius:.1f}")
+        # Re-render the scene when the slider value changes
+        self.visualizer.visualize()
 
     def update_member_radius_scale(self, value):
         self.visualizer.member_radius_scale = value / 10.0
-        self.member_radius_value.setText(f"{self.visualizer.member_radius_scale:.2f}")
+        # Re-render the scene when the slider value changes
+        self.visualizer.visualize()
 
     def update_selected_classes(self):
         self.visualizer.selected_classes = [
@@ -577,6 +738,8 @@ class MainWindow(QMainWindow):
 
     def update_include_functions(self, state):
         self.visualizer.include_functions = state == Qt.Checked
+        # Trigger visualization update when the include functions checkbox is toggled
+        self.visualizer.visualize()
 
     def on_status_change(self, event):
         self.status_changed.emit(event.new)
@@ -587,8 +750,6 @@ class MainWindow(QMainWindow):
             file_url = f"file://{os.path.abspath(save_path)}"
             self.status_display.setText(
                 f"<b>Success!</b> Saved to: <span style='font-size:10px'>{save_path}</span> "
-                f"<a href='{file_url}' style='font-size:10px; background-color:#4CAF50; color:white; text-decoration:none; "
-                f"border-radius:3px; padding:3px 6px; display:inline-block;'>View</a>"
             )
         elif status.startswith("Error"):
             self.status_display.setText(
@@ -633,47 +794,105 @@ class MainWindow(QMainWindow):
         if not save_path.endswith(f".{save_format}"):
             save_path = f"{save_path}.{save_format}"
 
-        self.param.status = "Saving visualization..."
-        plotter = self.plotter
+        self.visualizer.status = "Saving visualization..."
+        # Force UI update to show the saving status
         QApplication.processEvents()
+        self.status_changed.emit("Saving visualization...")
+        QApplication.processEvents()
+        plotter = self.visualizer.plotter
         save_path = Path(save_path).with_suffix(f".{save_format}")
+
+        # Create a console for output
+        console = Console()
+        rprint("[bold green]Starting save operation...[/bold green]")
+
         try:
-            if save_format == "html":
-                plotter.export_html(save_path)
-            elif save_format in ["png", "jpeg"]:
-                screenshot_plotter = pv.Plotter(off_screen=True)
-                screenshot_plotter.add_text(
-                    self.param.old_title,
-                    position="upper_edge",
-                )
-                for actor in plotter.actors.values():
-                    if isinstance(actor, pv.Actor) and actor.mapper.GetInput():
-                        mesh = actor.mapper.GetInput()
-                        smooth_shading = actor.prop.GetInterpolation() > 0
-                        screenshot_plotter.add_mesh(
-                            mesh,
-                            color=actor.prop.GetColor(),
-                            show_edges=actor.prop.GetEdgeVisibility(),
-                            line_width=actor.prop.GetLineWidth(),
-                            smooth_shading=smooth_shading,
-                        )
-                for light in plotter.renderer.GetLights():
-                    screenshot_plotter.add_light(
-                        pv.Light(
-                            position=light.GetPosition(),
-                            color=light.GetDiffuseColor(),
-                            intensity=light.GetIntensity(),
-                        )
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(
+                    bar_width=40, complete_style="green", finished_style="bold green"
+                ),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                expand=True,
+            ) as progress:
+                if save_format == "html":
+                    save_task = progress.add_task(
+                        "[bold cyan]Exporting to HTML...", total=1
                     )
-                screenshot_plotter.add_axes()
-                screenshot_plotter.camera_position = plotter.camera_position
-                screenshot_plotter.set_background("lightgray")
-                screenshot_plotter.screenshot(save_path, window_size=[1200, 800])
-                screenshot_plotter.close()
-            self.param.status = f"Visualization saved to {save_path}"
+                    plotter.export_html(save_path)
+                    progress.update(save_task, advance=1)
+                    QApplication.processEvents()
+
+                elif save_format in ["png", "jpg"]:
+                    # Create tasks for the different steps
+                    setup_task = progress.add_task(
+                        "[bold magenta]Setting up screenshot...", total=1
+                    )
+                    render_task = progress.add_task(
+                        "[bold green]Rendering final image...", total=1, visible=False
+                    )
+
+                    rprint(
+                        "[bold green]Taking screenshot of current view...[/bold green]"
+                    )
+                    progress.update(setup_task, completed=1)
+                    progress.update(render_task, visible=True)
+                    QApplication.processEvents()
+
+                    # Temporarily add the title text to the plotter for the screenshot
+                    # Store the original text actors to restore them later
+                    original_text_actors = []
+                    for actor_key in list(plotter.actors.keys()):
+                        if "text" in actor_key.lower():
+                            original_text_actors.append(
+                                (actor_key, plotter.actors[actor_key])
+                            )
+
+                    # Add the title temporarily
+                    title_actor = plotter.add_text(
+                        self.visualizer.old_title,
+                        position="upper_edge",
+                        font_size=12,
+                        color="black",
+                    )
+
+                    # Take the screenshot
+                    plotter.screenshot(save_path, window_size=[1200, 1200])
+
+                    # Remove the temporary title
+                    plotter.remove_actor(title_actor)
+
+                    # Restore the original state of the plotter
+                    plotter.render()
+
+                    progress.update(render_task, completed=1)
+                    QApplication.processEvents()
+                else:
+                    raise ValueError(f"Unsupported save format: {save_format}")
+
+            self.visualizer.status = f"Visualization saved to {save_path}"
+            rprint(f"[bold green]Visualization saved to: {save_path}[/bold green]")
+            QApplication.processEvents()
+
+            # Print completion message
+            rprint(
+                f"[bold green]Save operation completed successfully! File saved to: {save_path}[/bold green]"
+            )
+
         except Exception as e:
             logger.error("Failed to save: %s", e)
-            self.param.status = f"Error saving visualization: {str(e)}"
+            self.visualizer.status = f"Error saving visualization: {str(e)}"
+
+    def reset_view(self):
+        """
+        Reset the camera orientation to the default view.
+        """
+        self.vtk_widget.reset_camera()
+        # Set to an isometric view to standardize orientation
+        self.vtk_widget.view_isometric()
+        self.visualizer.status = "View reset to default orientation."
 
 
 if __name__ == "__main__":

@@ -638,10 +638,19 @@ save_format_select = pn.widgets.Select(
 )
 save_format_select.link(visualizer, value="save_format")
 
+# Create sliders for visualization parameters
 class_radius_slider = pn.widgets.FloatSlider(
     name="Class Radius", start=1.0, end=10.0, step=0.5, value=visualizer.class_radius
 )
 class_radius_slider.link(visualizer, value="class_radius")
+
+
+# Trigger visualization update when slider value changes
+def update_on_class_radius_change(event):
+    visualizer.visualize()
+
+
+class_radius_slider.param.watch(update_on_class_radius_change, "value")
 
 member_radius_scale_slider = pn.widgets.FloatSlider(
     name="Member Radius Scale",
@@ -651,6 +660,14 @@ member_radius_scale_slider = pn.widgets.FloatSlider(
     value=visualizer.member_radius_scale,
 )
 member_radius_scale_slider.link(visualizer, value="member_radius_scale")
+
+
+# Trigger visualization update when slider value changes
+def update_on_member_radius_change(event):
+    visualizer.visualize()
+
+
+member_radius_scale_slider.param.watch(update_on_member_radius_change, "value")
 
 class_selector = pn.widgets.MultiSelect(
     name="Select Classes to Visualize, empty for all",
