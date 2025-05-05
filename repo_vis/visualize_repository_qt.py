@@ -8,19 +8,21 @@ Parses classes, methods, and functions, rendering them as 3D objects using PyVis
 
 Key Features:
 - Extracts repository structure using AST.
-- Visualizes classes (red dodecahedrons), methods (blue spheres), and functions (green cylinders).
+- Visualizes classes (red dodecahedrons, scaled by method count), methods (blue spheres), and functions (green cylinders around package center).
 - Interactive UI for customizing and saving visualizations (HTML, PNG, JPEG).
 
 Usage:
 Run: python visualize_repository_qt.py
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-04 22:25:25
+Last modified: 2025-05-05 16:47:33
 """
 
 import ast
 import logging
 import os
+import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -46,7 +48,6 @@ from PyQt5.QtWidgets import (
 )
 from pyvistaqt import QtInteractor
 from rich import print as rprint
-from rich.console import Console
 from rich.logging import RichHandler
 from rich.progress import (
     BarColumn,
@@ -63,9 +64,10 @@ DEFAULT_REP = "/Users/egs/repos/proteusPy"
 DEFAULT_PACKAGE_NAME = os.path.basename(DEFAULT_REP)
 DEFAULT_SAVE_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
 DEFAULT_SAVE_NAME = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
+FONTSIZE = 12
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, handlers=[RichHandler()])
+logging.basicConfig(level=logging.WARNING, handlers=[RichHandler()])
 logger = logging.getLogger()
 
 
@@ -152,7 +154,7 @@ def fibonacci_sphere(samples, radius=1.0, center=None):
 
 
 def create_3d_visualization(
-    visualizer,
+    viz_instance,
     elements,
     save_path,
     save_format="html",
@@ -161,7 +163,7 @@ def create_3d_visualization(
     old_title="",
     plotter=None,
 ):
-    visualizer.status = "Setting up visualization..."
+    viz_instance.status = "Setting up visualization..."
     QApplication.processEvents()
 
     # Reset plotter
@@ -172,7 +174,6 @@ def create_3d_visualization(
 
     plotter.disable_parallel_projection()
     plotter.enable_anti_aliasing("msaa")
-    plotter.set_background("lightgray")
     plotter.add_axes()
     plotter.add_light(pv.Light(position=(50, 100, 100), color="white", intensity=1.0))
     plotter.add_light(
@@ -182,32 +183,22 @@ def create_3d_visualization(
 
     package_center = np.array([0, 0, 0])
     package_name = Path(save_path).stem
-    package_mesh = pv.Icosahedron(center=package_center, radius=0.8)
+    package_radius = 1.0
+    package_mesh = pv.Icosahedron(center=package_center, radius=package_radius)
     plotter.add_mesh(
         package_mesh, color="purple", show_edges=False, smooth_shading=False
     )
 
     num_classes = len([e for e in elements if e["type"] == "class"])
-    visualizer.status = f"Rendering {num_classes} classes..."
+    viz_instance.status = f"Rendering {num_classes} classes..."
     QApplication.processEvents()
     class_positions = fibonacci_sphere(
         num_classes, radius=class_radius, center=package_center
     )
     class_index = 0
 
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-        TimeRemainingColumn,
-    )
-
-    # Create a console for output
-    console = Console()
     rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
-
+    logger.info("Starting to render %s classes...", num_classes)
     with Progress(
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
@@ -223,7 +214,10 @@ def create_3d_visualization(
                 continue
             pos = class_positions[class_index]
             class_index += 1
-            mesh = pv.Dodecahedron(radius=0.75 / 2, center=pos)
+            # Scale class radius based on number of methods
+            method_count = len(element.get("methods", []))
+            scaled_radius = (0.75 / 2) * (1 + 0.1 * np.log(method_count + 1))
+            mesh = pv.Dodecahedron(radius=scaled_radius, center=pos)
             plotter.add_mesh(mesh, color="red", show_edges=False, smooth_shading=False)
             line = pv.Cylinder(
                 radius=0.025,
@@ -233,28 +227,26 @@ def create_3d_visualization(
             )
             plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
 
-            # Update progress bar every 10% instead of every iteration
-            update_interval = max(1, int(num_classes * 0.1))  # 10% of total classes
+            update_interval = max(1, int(num_classes * 0.25))
             if class_index % update_interval == 0 or class_index == num_classes:
                 progress.update(task, completed=class_index)
-                # Update the UI to show progress in real-time
                 QApplication.processEvents()
 
-    # Print completion message
     rprint("[bold green]Finished rendering classes![/bold green]")
+    logger.info("Finished rendering classes!")
 
     num_functions = len([e for e in elements if e["type"] == "function"])
     if num_functions > 0:
-        visualizer.status = f"Rendering {num_functions} functions..."
+        viz_instance.status = f"Rendering {num_functions} functions..."
         QApplication.processEvents()
         function_positions = fibonacci_sphere(
-            num_functions, radius=class_radius * 0.4, center=package_center
+            num_functions, radius=package_radius * 1.25, center=package_center
         )
 
-        # Create a progress bar for function rendering
         rprint(
             f"[bold green]Starting to render {num_functions} functions...[/bold green]"
         )
+        logger.info("Starting to render %s functions...", num_functions)
 
         with Progress(
             SpinnerColumn(),
@@ -284,30 +276,27 @@ def create_3d_visualization(
                 plotter.add_mesh(line, color="green", line_width=1)
                 plotter.reset_camera()
 
-                # Update progress bar every 10% instead of every iteration
-                update_interval = max(
-                    1, int(num_functions * 0.1)
-                )  # 10% of total functions
+                update_interval = max(1, int(num_functions * 0.25))
                 if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
                     progress.update(func_task, completed=i + 1)
                     QApplication.processEvents()
 
         rprint("[bold green]Finished rendering functions![/bold green]")
+        logger.info("Finished rendering functions!")
 
-    visualizer.status = "Rendering methods..."
+    viz_instance.status = "Rendering methods..."
     QApplication.processEvents()
 
-    # Count total methods for progress bar
     total_methods = sum(
         len(class_elem.get("methods", []))
         for class_elem in [e for e in elements if e["type"] == "class"]
     )
 
     if total_methods > 0:
-        # Create a progress bar for method rendering
         rprint(
             f"[bold green]Starting to render {total_methods} methods...[/bold green]"
         )
+        logger.info("Starting to render %s methods...", total_methods)
 
         with Progress(
             SpinnerColumn(),
@@ -343,10 +332,7 @@ def create_3d_visualization(
                         plotter.add_mesh(line, color="blue", line_width=1)
                         method_count += 1
 
-                        # Update progress bar every 10% instead of every iteration
-                        update_interval = max(
-                            1, int(total_methods * 0.1)
-                        )  # 10% of total methods
+                        update_interval = max(1, int(total_methods * 0.25))
                         if (
                             method_count % update_interval == 0
                             or method_count == total_methods
@@ -355,6 +341,7 @@ def create_3d_visualization(
                             QApplication.processEvents()
 
         rprint("[bold green]Finished rendering methods![/bold green]")
+        logger.info("Finished rendering methods!")
 
     plotter.reset_camera()
     QApplication.processEvents()
@@ -362,11 +349,12 @@ def create_3d_visualization(
     num_methods = sum(
         len(e.get("methods", [])) for e in elements if e["type"] == "class"
     )
+    num_functions = len([e for e in elements if e["type"] == "function"])
 
     title_text = f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions}"
 
     plotter.render()
-    visualizer.status = "Scene generation complete."
+    viz_instance.status = "Scene generation complete."
 
     return plotter, title_text
 
@@ -477,7 +465,7 @@ class RepositoryVisualizer(param.Parameterized):
             )
             self.old_title = title_text
             self.window_title = title_text
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:  # Replace with specific exceptions
             self.status = f"Error creating visualization: {str(e)}"
 
 
@@ -506,8 +494,8 @@ class MainWindow(QMainWindow):
         )
 
         control_panel = QVBoxLayout()
-        control_panel.setSpacing(3)  # Reduced from 10
-        control_panel.setContentsMargins(8, 8, 8, 8)  # Reduced from 10,10,10,10
+        control_panel.setSpacing(3)
+        control_panel.setContentsMargins(8, 8, 8, 8)
 
         control_panel.addWidget(
             QLabel(
@@ -536,13 +524,11 @@ class MainWindow(QMainWindow):
         self.save_format_select.setCurrentText(self.visualizer.save_format)
         control_panel.addWidget(self.save_format_select)
 
-        # Visualization Parameters title
         vis_params_label = QLabel(
             "<b style='font-size:13px;'>Visualization Parameters</b>"
         )
         control_panel.addWidget(vis_params_label)
 
-        # Class Radius slider
         control_panel.addWidget(QLabel("Class Radius"))
         self.class_radius_slider = QSlider(Qt.Horizontal)
         self.class_radius_slider.setMinimum(10)
@@ -552,7 +538,6 @@ class MainWindow(QMainWindow):
         self.class_radius_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.class_radius_slider)
 
-        # Member Radius Scale slider
         self.member_radius_scale_slider = QSlider(Qt.Horizontal)
         self.member_radius_scale_slider.setMinimum(5)
         self.member_radius_scale_slider.setMaximum(30)
@@ -574,7 +559,7 @@ class MainWindow(QMainWindow):
         control_panel.addWidget(QLabel("Select classes (empty for all):"))
         self.class_selector = QListWidget()
         self.class_selector.setSelectionMode(QListWidget.MultiSelection)
-        self.class_selector.setMaximumHeight(80)  # Limit height
+        self.class_selector.setMaximumHeight(80)
         for item in self.visualizer.available_classes:
             self.class_selector.addItem(item)
         control_panel.addWidget(self.class_selector)
@@ -586,7 +571,6 @@ class MainWindow(QMainWindow):
                 styleSheet="background: transparent; border: none;",
             )
         )
-        # Update other QLabel widgets to have no background
         for widget in control_panel.findChildren(QLabel):
             widget.setStyleSheet("background: transparent; border: none;")
 
@@ -597,7 +581,7 @@ class MainWindow(QMainWindow):
 
         self.function_selector = QListWidget()
         self.function_selector.setSelectionMode(QListWidget.MultiSelection)
-        self.function_selector.setMaximumHeight(80)  # Limit height
+        self.function_selector.setMaximumHeight(80)
         for item in self.visualizer.available_functions:
             self.function_selector.addItem(item)
         control_panel.addWidget(self.function_selector)
@@ -628,10 +612,7 @@ class MainWindow(QMainWindow):
         self.reset_view_button.setObjectName("reset-view")
         button_row.addWidget(self.reset_view_button)
 
-        # Connect the reset view button to a reset view function
         self.reset_view_button.clicked.connect(self.reset_view)
-
-        # Connect the save button to a save function
         self.save_button.clicked.connect(self.save_current_view)
 
         self.status_display = QLabel("Ready")
@@ -639,7 +620,9 @@ class MainWindow(QMainWindow):
         self.status_display.setStyleSheet("font-weight: bold; font-size: 14px;")
         button_row.addWidget(self.status_display, stretch=1)
 
-        self.vtk_widget = QtInteractor(self)
+        set_pyvista_theme("auto", verbose=True)
+        self.vtk_widget = QtInteractor(self, theme=pv._GlobalTheme())
+
         vis_panel.addWidget(self.vtk_widget, stretch=1)
         vis_panel.addLayout(button_row)
 
@@ -648,25 +631,17 @@ class MainWindow(QMainWindow):
         control_widget.setFixedWidth(375)
         main_layout.addWidget(control_widget)
 
-        main_layout.setContentsMargins(0, 0, 0, 0)  # No margins for the main layout
-        main_layout.setSpacing(5)  # No spacing between control and visualization panels
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(5)
 
         vis_widget = QWidget()
         vis_widget.setLayout(vis_panel)
         main_layout.addWidget(vis_widget, stretch=1)
 
-        # Set stretch factors for the main layout
-        main_layout.setStretch(0, 1)  # Control panel
-        main_layout.setStretch(1, 3)  # Visualization panel
+        main_layout.setStretch(0, 1)
+        main_layout.setStretch(1, 3)
 
-        # Enable auto-resizing for the central widget
         central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        # Adjust control panel to allow vertical stretching
-        control_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        # Spacing and margins already set above
-
-        # Adjust control panel to allow shrinking vertically
         control_widget.setSizePolicy(
             QSizePolicy.Preferred, QSizePolicy.MinimumExpanding
         )
@@ -675,7 +650,6 @@ class MainWindow(QMainWindow):
         self.repo_path_input.editingFinished.connect(self.update_repo_path)
         self.save_path_input.textChanged.connect(self.update_save_path)
         self.save_format_select.currentTextChanged.connect(self.update_save_format)
-        # Connect to sliderReleased instead of valueChanged for better performance
         self.class_radius_slider.sliderReleased.connect(
             lambda: self.update_class_radius(self.class_radius_slider.value())
         )
@@ -701,7 +675,6 @@ class MainWindow(QMainWindow):
         )
         self.visualizer.param.watch(self.update_window_title, "window_title")
 
-        # Remove all backgrounds from QLabel widgets
         for widget in self.findChildren(QLabel):
             widget.setStyleSheet("background: transparent; border: none;")
 
@@ -718,12 +691,10 @@ class MainWindow(QMainWindow):
 
     def update_class_radius(self, value):
         self.visualizer.class_radius = value / 10.0
-        # Re-render the scene when the slider value changes
         self.visualizer.visualize()
 
     def update_member_radius_scale(self, value):
         self.visualizer.member_radius_scale = value / 10.0
-        # Re-render the scene when the slider value changes
         self.visualizer.visualize()
 
     def update_selected_classes(self):
@@ -738,18 +709,18 @@ class MainWindow(QMainWindow):
 
     def update_include_functions(self, state):
         self.visualizer.include_functions = state == Qt.Checked
-        # Trigger visualization update when the include functions checkbox is toggled
         self.visualizer.visualize()
 
     def on_status_change(self, event):
         self.status_changed.emit(event.new)
+        QApplication.processEvents()
 
     def update_status_display(self, status):
         if status.startswith("Visualization saved to"):
             save_path = status.split("Visualization saved to ")[-1].strip()
             file_url = f"file://{os.path.abspath(save_path)}"
             self.status_display.setText(
-                f"<b>Success!</b> Saved to: <span style='font-size:10px'>{save_path}</span> "
+                f"<span style='font-size:12px'>{save_path}</span> "
             )
         elif status.startswith("Error"):
             self.status_display.setText(
@@ -785,121 +756,239 @@ class MainWindow(QMainWindow):
         self.vtk_widget.render()
 
     def save_current_view(self):
-        """
-        Save the current view of the visualization to the specified path and format.
-        """
         save_path = self.visualizer.save_path
         save_format = self.visualizer.save_format
 
         if not save_path.endswith(f".{save_format}"):
             save_path = f"{save_path}.{save_format}"
 
-        self.visualizer.status = "Saving visualization..."
-        # Force UI update to show the saving status
+        self.visualizer.status = f"Saving visualization to {save_path}..."
         QApplication.processEvents()
+
         self.status_changed.emit("Saving visualization...")
         QApplication.processEvents()
+
         plotter = self.visualizer.plotter
         save_path = Path(save_path).with_suffix(f".{save_format}")
 
-        # Create a console for output
-        console = Console()
         rprint("[bold green]Starting save operation...[/bold green]")
+        logger.info("Starting save operation to %s", save_path)
 
         try:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]{task.description}"),
-                BarColumn(
-                    bar_width=40, complete_style="green", finished_style="bold green"
-                ),
-                TaskProgressColumn(),
-                TimeRemainingColumn(),
-                expand=True,
-            ) as progress:
-                if save_format == "html":
-                    save_task = progress.add_task(
-                        "[bold cyan]Exporting to HTML...", total=1
-                    )
-                    plotter.export_html(save_path)
-                    progress.update(save_task, advance=1)
-                    QApplication.processEvents()
+            if save_format == "html":
+                plotter.export_html(save_path)
+            elif save_format in ["png", "jpg"]:
+                rprint("[bold green]Taking screenshot of current view...[/bold green]")
+                logger.info("Taking screenshot of current view...")
+                original_text_actors = []
+                for actor_key in list(plotter.actors.keys()):
+                    if "text" in actor_key.lower():
+                        original_text_actors.append(
+                            (actor_key, plotter.actors[actor_key])
+                        )
+                title_actor = plotter.add_text(
+                    self.visualizer.old_title,
+                    position="upper_edge",
+                    font_size=12,
+                    color="black",
+                )
+                plotter.screenshot(save_path, window_size=[1200, 1200])
+                plotter.remove_actor(title_actor)
+                plotter.render()
+            else:
+                raise ValueError(f"Unsupported save format: {save_format}")
 
-                elif save_format in ["png", "jpg"]:
-                    # Create tasks for the different steps
-                    setup_task = progress.add_task(
-                        "[bold magenta]Setting up screenshot...", total=1
-                    )
-                    render_task = progress.add_task(
-                        "[bold green]Rendering final image...", total=1, visible=False
-                    )
-
-                    rprint(
-                        "[bold green]Taking screenshot of current view...[/bold green]"
-                    )
-                    progress.update(setup_task, completed=1)
-                    progress.update(render_task, visible=True)
-                    QApplication.processEvents()
-
-                    # Temporarily add the title text to the plotter for the screenshot
-                    # Store the original text actors to restore them later
-                    original_text_actors = []
-                    for actor_key in list(plotter.actors.keys()):
-                        if "text" in actor_key.lower():
-                            original_text_actors.append(
-                                (actor_key, plotter.actors[actor_key])
-                            )
-
-                    # Add the title temporarily
-                    title_actor = plotter.add_text(
-                        self.visualizer.old_title,
-                        position="upper_edge",
-                        font_size=12,
-                        color="black",
-                    )
-
-                    # Take the screenshot
-                    plotter.screenshot(save_path, window_size=[1200, 1200])
-
-                    # Remove the temporary title
-                    plotter.remove_actor(title_actor)
-
-                    # Restore the original state of the plotter
-                    plotter.render()
-
-                    progress.update(render_task, completed=1)
-                    QApplication.processEvents()
-                else:
-                    raise ValueError(f"Unsupported save format: {save_format}")
-
-            self.visualizer.status = f"Visualization saved to {save_path}"
-            rprint(f"[bold green]Visualization saved to: {save_path}[/bold green]")
+            self.visualizer.status = f"Visualization saved to: {save_path}"
+            rprint(f"[bold green]{self.visualizer.status}[/bold green]")
+            logger.info("Visualization saved to %s", save_path)
+            self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
-
-            # Print completion message
-            rprint(
-                f"[bold green]Save operation completed successfully! File saved to: {save_path}[/bold green]"
-            )
-
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:  # Replace with specific exceptions
             logger.error("Failed to save: %s", e)
             self.visualizer.status = f"Error saving visualization: {str(e)}"
 
     def reset_view(self):
-        """
-        Reset the camera orientation to the default view.
-        """
         self.vtk_widget.reset_camera()
-        # Set to an isometric view to standardize orientation
         self.vtk_widget.view_isometric()
         self.visualizer.status = "View reset to default orientation."
 
 
+def get_theme() -> str:
+    """
+    Determine the display theme for the current operating system.
+
+    Returns:
+    :return str: 'light' if the theme is light, 'dark' if the theme is dark, and 'light' otherwise
+    """
+    system = platform.system()
+
+    def _get_macos_theme() -> str:
+        script = """
+        tell application "System Events"
+            tell appearance preferences
+                if dark mode is true then
+                    return "dark"
+                else
+                    return "light"
+                end if
+            end tell
+        end tell
+        """
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            if result.returncode == 0:
+                theme = result.stdout.strip().lower()
+                if theme in ["dark", "light"]:
+                    return theme
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to get macOS theme: %s", e.stderr)
+        except (OSError, ValueError) as e:
+            logger.error("Error getting macOS theme: %s", e)
+        return "light"
+
+    def _get_windows_theme() -> str:
+        try:
+            # Lazy import winreg only on Windows
+            from winreg import (
+                HKEY_CURRENT_USER,
+                CloseKey,
+                ConnectRegistry,
+                OpenKey,
+                QueryValueEx,
+            )
+
+            registry = ConnectRegistry(None, HKEY_CURRENT_USER)
+            key_path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            key = OpenKey(registry, key_path)
+            try:
+                value, _ = QueryValueEx(key, "AppsUseLightTheme")
+                return "dark" if value == 0 else "light"
+            finally:
+                CloseKey(key)
+        except ImportError:
+            logger.warning("winreg module not available")
+        except (
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            OSError,
+            ValueError,
+        ) as e:
+            logger.error("Failed to get Windows theme: %s", e)
+        return "light"
+
+    def _get_linux_theme() -> str:
+        try:
+            result = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+            if result.returncode == 0 and "dark" in result.stdout.strip().lower():
+                return "dark"
+        except subprocess.CalledProcessError as e:
+            logger.error("Subprocess error while getting Linux theme: %s", e)
+        except FileNotFoundError as e:
+            logger.error("Command not found while getting Linux theme: %s", e)
+        except OSError as e:
+            logger.error("OS error while getting Linux theme: %s", e)
+        return "light"
+
+    # Use a dictionary to map system to theme getter function
+    theme_getters = {
+        "Darwin": _get_macos_theme,
+        "Windows": _get_windows_theme,
+        "Linux": _get_linux_theme,
+    }
+
+    # Get theme using appropriate function or default to light
+    return theme_getters.get(system, lambda: "light")()
+
+
+def set_pyvista_theme(theme: str, verbose=False) -> str:
+    """
+    Set the PyVista theme based on the provided theme parameter.
+
+    This function sets the default PyVista theme to either 'document' or 'dark'
+    based on the input theme. If 'auto' is selected, the theme is determined automatically
+    based on the current system or application theme. It also adjusts font settings based on platform.
+
+    :param theme: The theme to set for PyVista. Must be 'auto', 'light', or 'dark'.
+    :type theme: str
+    :param verbose: If True, logs the selected theme. Defaults to False.
+    :type verbose: bool, optional
+    :raises ValueError: If an invalid theme is provided.
+    :return: The current PyVista theme.
+    :rtype: str
+    """
+
+    _theme = get_theme()
+
+    match theme.lower():
+        case "auto":
+            if _theme == "light":
+                pv.set_plot_theme("document")
+            else:
+                pv.set_plot_theme("dark")
+                _theme = "dark"
+        case "light":
+            pv.set_plot_theme("document")
+        case "dark":
+            pv.set_plot_theme("dark")
+            _theme = "dark"
+        case _:
+            raise ValueError("Invalid theme. Must be 'auto', 'light', or 'dark'.")
+
+    # Adjust font settings based on platform
+    dpi_scale = get_platform_dpi_scale()
+
+    # Set font sizes with DPI adjustment
+    base_font_size = FONTSIZE
+    base_title_size = FONTSIZE + 2
+
+    pv.global_theme.font.size = int(base_font_size / dpi_scale)
+    pv.global_theme.font.title_size = int(base_title_size / dpi_scale)
+
+    if verbose:
+        logger.info("PyVista theme set to: %s", _theme.lower())
+        logger.info(
+            "Font size set to: %s (base: %s, scale: %s)",
+            pv.global_theme.font.size,
+            base_font_size,
+            dpi_scale,
+        )
+
+    return _theme
+
+
+def get_platform_dpi_scale():
+    """
+    Get the DPI scale factor based on the current platform.
+    This function checks the platform and returns a scale factor for DPI adjustments.
+    :return: The DPI scale factor.
+    :rtype: float
+    """
+
+    if sys.platform.startswith("win"):
+        return 1.25  # Windows scaling factor
+    elif sys.platform.startswith("darwin"):
+        return 2.0  # macOS scaling factor
+    else:
+        return 1.0  # Default scaling factor for Linux and other platforms
+
+
 if __name__ == "__main__":
     app = QApplication([])
-    visualizer = RepositoryVisualizer(plotter=None)  # Plotter will be set in MainWindow
+    visualizer = RepositoryVisualizer(plotter=None)
     window = MainWindow(visualizer)
-    visualizer.plotter = window.vtk_widget  # Assign the MainWindow's vtk_widget
+    visualizer.plotter = window.vtk_widget
     window.resize(1200, 800)
     window.show()
     app.exec_()

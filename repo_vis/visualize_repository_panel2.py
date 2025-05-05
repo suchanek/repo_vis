@@ -420,12 +420,12 @@ def create_3d_visualization_for_panel(
             fallback_path = Path(save_path).with_suffix(".html")
             try:
                 visualizer.plotter.export_html(fallback_path)
-                logger.info(f"Saved fallback HTML visualization to {fallback_path}")
+                logger.info("Saved fallback HTML visualization to %s", fallback_path)
                 visualizer.status = (
                     f"Saved fallback HTML visualization to {fallback_path}"
                 )
             except Exception as fallback_error:
-                logger.error(f"Fallback save also failed: {fallback_error}")
+                logger.error("Fallback save also failed: %s", fallback_error)
 
     return visualizer.plotter, title_text
 
