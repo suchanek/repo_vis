@@ -19,11 +19,8 @@ Author: Eric G. Suchanek, PhD
 Last modified: 2025-05-05 23:00:00
 """
 
-import ast
 import logging
 import os
-import platform
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -62,6 +59,13 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
+from utility import (
+    can_import,
+    collect_elements,
+    fibonacci_sphere,
+    rotation_matrix_axis_angle,
+    set_pyvista_theme,
+)
 
 
 class DocstringPopup(QDialog):
@@ -82,6 +86,11 @@ class DocstringPopup(QDialog):
         self.setWindowTitle(title)
         self.setMinimumSize(600, 400)
         self.on_close_callback = on_close_callback
+
+        # Position the popup in the upper left of the screen
+        if parent:
+            screen_geometry = parent.screen().geometry()
+            self.move(screen_geometry.x() + 50, screen_geometry.y() + 50)
 
         layout = QVBoxLayout(self)
 
@@ -116,126 +125,14 @@ DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
 DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
 DEFAULT_SAVE_PATH: str = os.path.join(os.path.expanduser("~"), "Desktop")
 DEFAULT_SAVE_NAME: str = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
-FONTSIZE: int = 12
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, handlers=[RichHandler()])
-logger: logging.Logger = logging.getLogger()
-
-
-# Check PyQt5
-def can_import(module_name: str) -> Optional[object]:
-    """
-    Check if a module can be imported.
-
-    :param module_name: Name of the module to check.
-    :type module_name: str
-    :return: The imported module if successful, None otherwise.
-    :rtype: Optional[object]
-    """
-    try:
-        return __import__(module_name)
-    except ImportError:
-        return None
-
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.WARNING)
 
 if can_import("PyQt5") is None:
     sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
-
-
-def parse_file(file_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
-    """
-    Parse a Python file and extract class and function definitions using AST.
-    """
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            tree: ast.AST = ast.parse(file.read(), filename=file_path)
-    except (SyntaxError, UnicodeDecodeError):
-        return []
-
-    elements: List[Dict[str, Union[str, int, List[str]]]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            elements.append(
-                {
-                    "type": "class",
-                    "name": node.name,
-                    "methods": [
-                        {
-                            "name": n.name,
-                            "docstring": ast.get_docstring(n),
-                            "lineno": n.lineno,
-                        }
-                        for n in node.body
-                        if isinstance(n, ast.FunctionDef)
-                    ],
-                    "lineno": node.lineno,
-                    "docstring": ast.get_docstring(node),
-                }
-            )
-        elif isinstance(node, ast.FunctionDef) and not any(
-            isinstance(parent, ast.ClassDef) for parent in ast.iter_child_nodes(tree)
-        ):
-            elements.append(
-                {
-                    "type": "function",
-                    "name": node.name,
-                    "lineno": node.lineno,
-                    "docstring": ast.get_docstring(node),
-                }
-            )
-    return elements
-
-
-def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
-    """
-    Collect class and function elements from all Python files in a repository.
-    """
-    elements: List[Dict[str, Union[str, int, List[str]]]] = []
-    seen_classes: set = set()
-    seen_functions: set = set()
-    for root, _, files in os.walk(repo_path):
-        for file in files:
-            if file.endswith(".py"):
-                file_elements: List[Dict[str, Union[str, int, List[str]]]] = parse_file(
-                    os.path.join(root, file)
-                )
-                for elem in file_elements:
-                    if elem["type"] == "class" and elem["name"] not in seen_classes:
-                        seen_classes.add(elem["name"])
-                        elements.append(elem)
-                    elif (
-                        elem["type"] == "function"
-                        and elem["name"] not in seen_functions
-                    ):
-                        seen_functions.add(elem["name"])
-                        elements.append(elem)
-    return elements
-
-
-def fibonacci_sphere(
-    samples: int, radius: float = 1.0, center: Optional[np.ndarray] = None
-) -> List[np.ndarray]:
-    """
-    Generate points on a sphere using the Fibonacci spiral algorithm.
-    """
-    if center is None:
-        center = np.array([0, 0, 0])
-    if samples <= 0:
-        return []
-    if samples == 1:
-        return [center + radius * np.array([0, 0, 1])]
-
-    points: List[np.ndarray] = []
-    phi: float = np.pi * (3.0 - np.sqrt(5.0))
-    for i in range(samples):
-        y: float = 1 - (i / float(samples - 1)) * 2
-        radius_at_y: float = np.sqrt(1 - y * y)
-        theta: float = phi * i
-        x: float = np.cos(theta) * radius_at_y
-        z: float = np.sin(theta) * radius_at_y
-        points.append(center + radius * np.array([x, y, z]))
-    return points
 
 
 def create_3d_visualization(
@@ -344,7 +241,6 @@ def create_3d_visualization(
                 direction=pos - package_center,
             )
             plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
-            rprint(f"[bold red]Actor: {class_actor}...[/bold red]")
             update_interval: int = max(1, int(num_classes * 0.20))
             if class_index % update_interval == 0 or class_index == num_classes:
                 progress.update(task, completed=class_index)
@@ -597,7 +493,7 @@ class RepositoryVisualizer(param.Parameterized):
             save_path = f"{save_path}.{self.save_format}"
 
         try:
-            plotter, title_text, actor_to_element = create_3d_visualization(
+            _, title_text, actor_to_element = create_3d_visualization(
                 self,
                 filtered_elements,
                 save_path,
@@ -619,7 +515,7 @@ class MainWindow(QMainWindow):
 
     def show_class_docstring(self, item) -> None:
         """
-        Show the docstring for the selected class in a popup.
+        Show the docstring for the selected class in a popup and highlight the actor.
         """
         class_name = item.text()
         class_element = next(
@@ -631,17 +527,28 @@ class MainWindow(QMainWindow):
             None,
         )
         if class_element:
+            actor = next(
+                (
+                    a
+                    for a, elem in self.visualizer.actor_to_element.items()
+                    if elem["type"] == "class" and elem["name"] == class_name
+                ),
+                None,
+            )
+            if actor:
+                self.highlight_actor(actor)
+
             popup = DocstringPopup(
                 f"Class: {class_name}",
                 class_element.get("docstring", ""),
                 self,
-                on_close_callback=lambda: self.class_selector.clearSelection(),
+                on_close_callback=self.reset_picking_state,
             )
             popup.exec_()
 
     def show_function_docstring(self, item) -> None:
         """
-        Show the docstring for the selected function in a popup.
+        Show the docstring for the selected function in a popup and highlight the actor.
         """
         function_name = item.text()
         function_element = next(
@@ -653,13 +560,36 @@ class MainWindow(QMainWindow):
             None,
         )
         if function_element:
+            actor = next(
+                (
+                    a
+                    for a, elem in self.visualizer.actor_to_element.items()
+                    if elem["type"] == "function" and elem["name"] == function_name
+                ),
+                None,
+            )
+            if actor:
+                self.highlight_actor(actor)
+
             popup = DocstringPopup(
                 f"Function: {function_name}",
                 function_element.get("docstring", ""),
                 self,
-                on_close_callback=lambda: self.function_selector.clearSelection(),
+                on_close_callback=self.reset_picking_state,
             )
             popup.exec_()
+
+    def highlight_actor(self, actor):
+        """
+        Highlight the given actor.
+        """
+        self.reset_actor_appearances()
+        actor.prop.color = "pink"
+        actor.prop.show_edges = True
+        actor.prop.edge_color = "white"
+        actor.prop.line_width = 3
+        self._current_picked_actor = actor
+        self.vtk_widget.render()
 
     def __init__(self, visualizer: RepositoryVisualizer) -> None:
         """
@@ -670,6 +600,7 @@ class MainWindow(QMainWindow):
         self.current_frame = 0
         self.visualizer: RepositoryVisualizer = visualizer
         self.setWindowTitle(self.visualizer.window_title)
+        self._current_picked_actor: Optional[pv.Actor] = None
 
         central_widget: QWidget = QWidget()
         self.setCentralWidget(central_widget)
@@ -782,9 +713,9 @@ class MainWindow(QMainWindow):
             self.function_selector.addItem(item)
         control_panel.addWidget(self.function_selector)
 
-        self.button_spin = QPushButton("Spin Repository")
-        self.button_spin.clicked.connect(self.spin_camera)
-        control_panel.addWidget(self.button_spin)
+        # Move the visualize button from the button row to the control panel
+        self.visualize_button: QPushButton = QPushButton("Visualize Repository")
+        control_panel.addWidget(self.visualize_button)
 
         control_panel.addStretch()
 
@@ -794,9 +725,12 @@ class MainWindow(QMainWindow):
 
         button_row: QHBoxLayout = QHBoxLayout()
 
-        self.visualize_button: QPushButton = QPushButton("Visualize Repository")
-        self.visualize_button.setFixedWidth(150)
-        button_row.addWidget(self.visualize_button)
+        # Move spin button to the button row (left of save button)
+        self.button_spin = QPushButton("Spin Repository")
+        self.button_spin.clicked.connect(self.spin_camera)
+        self.button_spin.setFixedWidth(150)
+        self.button_spin.setStyleSheet("background-color: '#2196F3'; color: white;")
+        button_row.addWidget(self.button_spin)
 
         self.save_button: QPushButton = QPushButton("Save View")
         self.save_button.setFixedWidth(150)
@@ -808,7 +742,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.reset_camera_button)
 
         self.reset_view_button: QPushButton = QPushButton("Reset Orientation")
-        self.reset_view_button.setFixedWidth(110)
+        self.reset_view_button.setFixedWidth(130)
         self.reset_view_button.setObjectName("reset-view")
         button_row.addWidget(self.reset_view_button)
 
@@ -849,11 +783,9 @@ class MainWindow(QMainWindow):
 
         self.vtk_widget.enable_mesh_picking(
             callback=self.on_pick,  # Callback function for picking
-            show=True,  # Show the picked cell
+            show=False,  # Show the picked cell - we do this ourselves
+            show_actors=True,  # Show the picked actors
             show_message=True,  # Display a message when picking
-            style="wireframe",  # Highlight picked cell in wireframe
-            line_width=5,  # Width of the wireframe
-            color="pink",  # Highlight color
             font_size=14,  # Font size for messages
             left_clicking=False,  # Enable left-click picking
             use_actor=True,  # Return the picked actor
@@ -893,33 +825,86 @@ class MainWindow(QMainWindow):
         self.class_selector.itemClicked.connect(self.show_class_docstring)
         self.function_selector.itemClicked.connect(self.show_function_docstring)
 
-    def on_pick(self, mesh):
+    def on_pick(self, actor):
         """
         Callback function triggered when a cell is picked.
 
-        :param mesh: The picked mesh (actor).
-        :type mesh: pv.PolyData
+        :param actor: The picked actor.
+        :type actor: pv.Actor
         """
-        # The mesh parameter is the actor in enable_cell_picking
-        actor = mesh
-        # rprint(f"Picked actor: {actor}")
-        logger.debug("Picked actor: %s", actor)
+        # Reset any previously picked actors to their original appearance
+        self.reset_actor_appearances()
+
+        # Highlight the newly picked actor
         if actor in self.visualizer.actor_to_element:
+            # Highlight the picked actor !!!
+            actor.prop.color = "pink"
+            actor.prop.show_edges = True
+            actor.prop.edge_color = "white"
+            actor.prop.line_width = 3
+
+            # Get element details
             element = self.visualizer.actor_to_element[actor]
             element_type = element["type"]
             element_name = element["name"]
             docstring = element["docstring"]
             title = f"{element_type.capitalize()}: {element_name}"
+
+            # Store the current picked actor for later reset
+            self._current_picked_actor = actor
+
+            # Update status display
             self.update_status_display(f"Picked {element_type}: {element_name}")
+
+            # Show the docstring popup
             popup = DocstringPopup(
-                title,
-                docstring,
-                self,
-                on_close_callback=lambda: self.update_status_display("Ready"),
+                title, docstring, self, on_close_callback=self.reset_picking_state
             )
             popup.exec_()
         else:
             self.update_status_display("No object picked.")
+            self.reset_picking_state()
+
+    def reset_actor_appearances(self):
+        """
+        Reset all actors to their original appearance.
+        """
+        if not hasattr(self.visualizer, "actor_to_element"):
+            return
+
+        for actor in self.visualizer.actor_to_element.keys():
+            element_type = self.visualizer.actor_to_element[actor]["type"]
+            # Reset to original colors based on element type
+            if element_type == "class":
+                actor.prop.color = "red"
+            elif element_type == "method":
+                actor.prop.color = "blue"
+            elif element_type == "function":
+                actor.prop.color = "green"
+
+            # Reset edge properties
+            actor.prop.show_edges = False
+            actor.prop.line_width = 1
+
+        logger.debug("Reset actor appearances...")
+
+    def reset_picking_state(self):
+        """
+        Reset the picking state after interaction is complete.
+        Clears the picked mesh highlights, resets camera interaction, and unselects list items.
+        """
+        # Update the status
+        self.update_status_display("Ready")
+
+        # Reset all actors to their original appearance
+        self.reset_actor_appearances()
+
+        # Unselect any selected items in the class and function selectors
+        self.class_selector.clearSelection()
+        self.function_selector.clearSelection()
+
+        # Re-render the scene to show the reset appearances
+        self.vtk_widget.render()
 
     def update_repo_path(self) -> None:
         """
@@ -1101,13 +1086,78 @@ class MainWindow(QMainWindow):
         self.vtk_widget.view_isometric()
         self.visualizer.status = "View reset to default orientation."
 
-    def spin_camera(self, duration=5, n_frames=150):
+    # Function to compute rotation matrix around an arbitrary axis
+
+    # Function to rotate the camera around its local up vector
+    def spin_camera(self, plotter, angle_deg=360, duration=5, n_frames=150):
+        """Rotate the camera around its local up vector by angle_deg degrees."""
+
+        # Get current camera parameters
+        def update_camera():
+            self.visualizer.plotter.camera_position = path[self.current_frame]
+            self.current_frame = (self.current_frame + 1) % n_frames
+
+        _duration = duration
+        theta = np.linspace(0, 2 * np.pi, n_frames)
+        interval = int(_duration * 1000 / n_frames)
+
+        path = np.c_[np.cos(theta), np.sin(theta), np.zeros_like(theta)]
+        angle_delta = 360 / n_frames
+        focal_points = []
+
+        cam = self.visualizer.plotter.camera
+        up = np.array(cam.up)
+
+        # Use the up vector as the rotation axis
+        local_up = up / np.linalg.norm(up)
+
+        # compute the new path
+        pos = np.array(cam.position)
+        focal = np.array(cam.focal_point)
+
+        self.current_frame = 0
+        for frame in range(n_frames):
+            tot_angle = frame * angle_delta
+
+            # Compute rotation matrix around local up vector
+            rot_matrix = rotation_matrix_axis_angle(local_up, tot_angle)
+
+            # Rotate the camera position relative to the focal point
+            pos_relative = pos - focal
+            pos_relative_rotated = rot_matrix @ pos_relative
+            new_pos = focal + pos_relative_rotated
+
+            # Rotate the view direction (focal point - position) to compute new focal point
+            view_dir = focal - pos
+            view_dir_rotated = rot_matrix @ view_dir
+            new_focal = new_pos + view_dir_rotated
+
+            # Up vector remains unchanged since we are rotating around it
+            path[frame] = tuple(new_pos)
+            focal_points.append(
+                tuple(new_focal)
+            )  # Changed from focal_points[frame] to focal_points.append()
+            pos = new_pos
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(update_camera)
+        self.current_frame = 0
+
+        def stop_timer():
+            self.timer.stop()
+            self.update_status_display("Spin complete.")
+
+        self.update_status_display("Spinning scene...")
+        self.timer.start(interval)
+        QTimer.singleShot(duration * 1000, stop_timer)
+
+    def Ospin_camera(self, duration=5, n_frames=150):
         """
         Spins the camera around the z-axis in an orbital path.
         """
         theta = np.linspace(0, 2 * np.pi, n_frames)
         path = np.c_[np.cos(theta), np.sin(theta), np.zeros_like(theta)]
-        duration = 5
+        _duration = duration
 
         def update_camera():
             self.visualizer.plotter.camera_position = path[self.current_frame]
@@ -1122,157 +1172,9 @@ class MainWindow(QMainWindow):
             self.update_status_display("Spin complete.")
 
         self.update_status_display("Spinning scene...")
-        interval = int(duration * 1000 / n_frames)
+        interval = int(_duration * 1000 / n_frames)
         self.timer.start(interval)
         QTimer.singleShot(duration * 1000, stop_timer)
-
-
-def get_theme() -> str:
-    """
-    Determine the display theme for the current operating system.
-    """
-    system: str = platform.system()
-
-    def _get_macos_theme() -> str:
-        script: str = """
-        tell application "System Events"
-            tell appearance preferences
-                if dark mode is true then
-                    return "dark"
-                else
-                    return "light"
-                end if
-            end tell
-        end tell
-        """
-        try:
-            result = subprocess.run(
-                ["osascript", "-e", script],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-            )
-            if result.returncode == 0:
-                theme: str = result.stdout.strip().lower()
-                if theme in ["dark", "light"]:
-                    return theme
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to get macOS theme: %s", e.stderr)
-        except (OSError, ValueError) as e:
-            logger.error("Error getting macOS theme: %s", e)
-        return "light"
-
-    def _get_windows_theme() -> str:
-        try:
-            from winreg import (
-                HKEY_CURRENT_USER,
-                CloseKey,
-                ConnectRegistry,
-                OpenKey,
-                QueryValueEx,
-            )
-
-            registry = ConnectRegistry(None, HKEY_CURRENT_USER)
-            key_path: str = (
-                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-            )
-            key = OpenKey(registry, key_path)
-            try:
-                value, _ = QueryValueEx(key, "AppsUseLightTheme")
-                return "dark" if value == 0 else "light"
-            finally:
-                CloseKey(key)
-        except ImportError:
-            logger.warning("winreg module not available")
-        except (
-            subprocess.CalledProcessError,
-            FileNotFoundError,
-            OSError,
-            ValueError,
-        ) as e:
-            logger.error("Failed to get Windows theme: %s", e)
-        return "light"
-
-    def _get_linux_theme() -> str:
-        try:
-            result = subprocess.run(
-                ["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-            )
-            if result.returncode == 0 and "dark" in result.stdout.strip().lower():
-                return "dark"
-        except subprocess.CalledProcessError as e:
-            logger.error("Subprocess error while getting Linux theme: %s", e)
-        except FileNotFoundError as e:
-            logger.error("Command not found while getting Linux theme: %s", e)
-        except OSError as e:
-            logger.error("OS error while getting Linux theme: %s", e)
-        return "light"
-
-    theme_getters: Dict[str, callable] = {
-        "Darwin": _get_macos_theme,
-        "Windows": _get_windows_theme,
-        "Linux": _get_linux_theme,
-    }
-
-    return theme_getters.get(system, lambda: "light")()
-
-
-def set_pyvista_theme(theme: str, verbose: bool = False) -> str:
-    """
-    Set the PyVista theme based on the provided theme parameter.
-    """
-    _theme: str = get_theme()
-
-    match theme.lower():
-        case "auto":
-            if _theme == "light":
-                pv.set_plot_theme("document")
-            else:
-                pv.set_plot_theme("dark")
-                _theme = "dark"
-        case "light":
-            pv.set_plot_theme("document")
-        case "dark":
-            pv.set_plot_theme("dark")
-            _theme = "dark"
-        case _:
-            raise ValueError("Invalid theme. Must be 'auto', 'light', or 'dark'.")
-
-    dpi_scale: float = get_platform_dpi_scale()
-
-    base_font_size: int = FONTSIZE
-    base_title_size: int = FONTSIZE + 2
-
-    pv.global_theme.font.size = int(base_font_size / dpi_scale)
-    pv.global_theme.font.title_size = int(base_title_size / dpi_scale)
-
-    if verbose:
-        logger.info("PyVista theme set to: %s", _theme.lower())
-        logger.info(
-            "Font size set to: %s (base: %s, scale: %s)",
-            pv.global_theme.font.size,
-            base_font_size,
-            dpi_scale,
-        )
-
-    return _theme
-
-
-def get_platform_dpi_scale() -> float:
-    """
-    Get the DPI scale factor based on the current platform.
-    """
-    if sys.platform.startswith("win"):
-        return 1.25
-    elif sys.platform.startswith("darwin"):
-        return 2.0
-    else:
-        return 1.0
 
 
 if __name__ == "__main__":
