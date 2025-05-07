@@ -67,6 +67,21 @@ from utility import (
     set_pyvista_theme,
 )
 
+# Constants
+ORIGIN: Tuple[float, float, float] = (0, 0, 0)
+DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
+DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
+DEFAULT_SAVE_PATH: str = os.path.join(os.path.expanduser("~"), "Desktop")
+DEFAULT_SAVE_NAME: str = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
+
+# Configure logging
+logging.basicConfig(level=logging.WARNING, handlers=[RichHandler()])
+logger: logging.Logger = logging.getLogger()
+logger.setLevel(logging.WARNING)
+
+if can_import("PyQt5") is None:
+    sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
+
 
 class DocstringPopup(QDialog):
     def __init__(self, title: str, docstring: str, parent=None, on_close_callback=None):
@@ -119,22 +134,6 @@ class DocstringPopup(QDialog):
         super().closeEvent(event)
 
 
-# Constants
-ORIGIN: Tuple[float, float, float] = (0, 0, 0)
-DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
-DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
-DEFAULT_SAVE_PATH: str = os.path.join(os.path.expanduser("~"), "Desktop")
-DEFAULT_SAVE_NAME: str = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
-
-# Configure logging
-logging.basicConfig(level=logging.WARNING, handlers=[RichHandler()])
-logger: logging.Logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
-
-if can_import("PyQt5") is None:
-    sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
-
-
 def create_3d_visualization(
     viz_instance: "RepositoryVisualizer",
     elements: List[Dict[str, Union[str, int, List[str]]]],
@@ -170,23 +169,25 @@ def create_3d_visualization(
     viz_instance.status = "Setting up visualization..."
     QApplication.processEvents()
 
-    # Initialize actor-to-element mapping
+    # Initialize actor-to-element mapping !!!
     actor_to_element: Dict[pv.Actor, Dict[str, str]] = {}
 
     # Reset plotter
     plotter.clear_actors()
     plotter.remove_all_lights()
-    plotter.renderer.ResetCamera()
-    plotter.renderer_layer = 0
 
+    # plotter.renderer.ResetCamera()
+    plotter.renderer_layer = 0
     plotter.disable_parallel_projection()
     plotter.enable_anti_aliasing("msaa")
     plotter.add_axes()
     plotter.add_light(pv.Light(position=(50, 100, 100), color="white", intensity=1.0))
     plotter.add_light(
-        pv.Light(position=(-50, -100, -100), color="white", intensity=0.1)
+        pv.Light(position=(-50, -100, -100), color="white", intensity=0.5)
     )
-    plotter.add_light(pv.Light(position=(0, 0, 100), color="white", intensity=0.5))
+    # plotter.add_light(pv.Light(position=(0, 0, 100), color="white", intensity=0.5))
+
+    plotter.view_xy()
 
     package_center: np.ndarray = np.array([0, 0, 0])
     package_name: str = Path(save_path).stem
@@ -195,8 +196,13 @@ def create_3d_visualization(
         center=package_center, radius=package_radius
     )
     plotter.add_mesh(
-        package_mesh, color="purple", show_edges=False, smooth_shading=False
+        package_mesh,
+        color="purple",
+        show_edges=False,
+        smooth_shading=False,
+        name="package",
     )
+    plotter.reset_camera()
 
     num_classes: int = len([e for e in elements if e["type"] == "class"])
     viz_instance.status = f"Rendering {num_classes} classes..."
@@ -246,6 +252,7 @@ def create_3d_visualization(
                 progress.update(task, completed=class_index)
                 QApplication.processEvents()
 
+    plotter.reset_camera()
     rprint("[bold green]Finished rendering classes![/bold green]")
     logger.info("Finished rendering classes!")
 
@@ -447,9 +454,9 @@ class RepositoryVisualizer(param.Parameterized):
             self.available_functions = function_names
             self.param.selected_functions.objects = function_names
             self.save_path = os.path.basename(self.repo_path)
-            self.status = (
-                f"Found {len(class_names)} classes and {len(function_names)} functions."
-            )
+            self.status = f"Repository loaded: {self.repo_path}"
+            if self.plotter:
+                self.plotter.clear_actors()
         else:
             self.status = "Repository path does not exist."
             self.available_classes = []
@@ -598,6 +605,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.timer = None
         self.current_frame = 0
+        self.spin_count = 0
         self.visualizer: RepositoryVisualizer = visualizer
         self.setWindowTitle(self.visualizer.window_title)
         self._current_picked_actor: Optional[pv.Actor] = None
@@ -619,7 +627,7 @@ class MainWindow(QMainWindow):
         )
 
         control_panel: QVBoxLayout = QVBoxLayout()
-        control_panel.setSpacing(3)
+        control_panel.setSpacing(5)
         control_panel.setContentsMargins(8, 8, 8, 8)
 
         control_panel.addWidget(
@@ -658,7 +666,7 @@ class MainWindow(QMainWindow):
 
         control_panel.addWidget(QLabel("Class Radius"))
         self.class_radius_slider: QSlider = QSlider(Qt.Horizontal)
-        self.class_radius_slider.setMinimum(15)
+        self.class_radius_slider.setMinimum(20)
         self.class_radius_slider.setMaximum(100)
         self.class_radius_slider.setValue(int(self.visualizer.class_radius * 10))
         self.class_radius_slider.setTickInterval(5)
@@ -666,8 +674,8 @@ class MainWindow(QMainWindow):
         control_panel.addWidget(self.class_radius_slider)
 
         self.member_radius_scale_slider: QSlider = QSlider(Qt.Horizontal)
-        self.member_radius_scale_slider.setMinimum(5)
-        self.member_radius_scale_slider.setMaximum(30)
+        self.member_radius_scale_slider.setMinimum(6)
+        self.member_radius_scale_slider.setMaximum(20)
         self.member_radius_scale_slider.setValue(
             int(self.visualizer.member_radius_scale * 10)
         )
@@ -1020,6 +1028,7 @@ class MainWindow(QMainWindow):
         """
         Reset the camera to its default position.
         """
+        self.vtk_widget.view_xy()
         self.vtk_widget.reset_camera()
         self.vtk_widget.render()
 
@@ -1080,101 +1089,127 @@ class MainWindow(QMainWindow):
 
     def reset_view(self) -> None:
         """
-        Reset the view to its default orientation.
+        Reset the view to its default orientation (XY-plane).
         """
-        self.vtk_widget.reset_camera()
-        self.vtk_widget.view_isometric()
+        self.vtk_widget.view_xy()  # Reset the view to the XY-plane
+        self.vtk_widget.reset_camera()  # Reset the camera to its default position
+        self.vtk_widget.render()  # Re-render the scene
         self.visualizer.status = "View reset to default orientation."
 
     # Function to compute rotation matrix around an arbitrary axis
 
-    # Function to rotate the camera around its local up vector
-    def spin_camera(self, plotter, angle_deg=360, duration=5, n_frames=150):
-        """Rotate the camera around its local up vector by angle_deg degrees."""
+    def spin_camera(self):
+        """
+        Spins the camera around the scene center.
 
-        # Get current camera parameters
+        :param duration: Duration of spin in seconds
+        :param n_frames: Number of frames (if None, calculated from fps)
+        """
+
+        spins = 2
+        sps = 1  # spin/second
+
+        fps = 30  # frames per second
+        dpf = 2  # degrees per frame
+
+        duration = spins / sps  # Total duration of the spin in seconds
+
+        center = np.array([0, 0, 0])  # Center of the scene
+        # Calculate the number of points for path[]
+        n_points = int(360 / dpf)
+
+        # Get current camera state
+        plotter = self.visualizer.plotter
+
+        # Debug: Log center point
+        print(f"DEBUG: Scene center at {center}")
+
+        center_pos = np.array(center)
+
+        # Calculate orbit radius from current position
+        current_pos = np.array(plotter.camera_position[0])
+        radius = np.linalg.norm(current_pos - center_pos)
+
+        # Debug: Log camera position and radius
+        print(f"DEBUG: Initial camera position: {current_pos}")
+        print(f"DEBUG: Orbit radius: {radius}")
+
+        # Store original camera position and view up
+        orig_pos = current_pos
+        orig_up = np.array(plotter.camera.up)
+        # Debug: Log camera up vector
+        print(f"DEBUG: Camera up vector: {orig_up}")
+
+        # Calculate the orbit plane
+        view_dir = center_pos - orig_pos
+        view_dir = view_dir / np.linalg.norm(view_dir)
+        right = np.cross(orig_up, view_dir)
+        right = right / np.linalg.norm(right)
+
+        # new_up = np.cross(view_dir, right)
+        new_up = orig_up
+
+        # Debug: Log orbit plane vectors
+        print(f"DEBUG: View direction: {view_dir}")
+        print(f"DEBUG: Right vector: {right}")
+        print(f"DEBUG: New up vector: {new_up}")
+
+        # Generate orbit path
+        theta = np.linspace(0, 2 * np.pi, n_points)
+
+        # Debug: Log theta range
+        print(f"DEBUG: Theta range: {theta[0]} to {theta[-1]} with {len(theta)} points")
+
+        path = np.c_[
+            radius * np.cos(theta), np.zeros_like(theta), radius * np.sin(theta)
+        ]
+
+        # Debug: Log path length and sample points
+        # print(f"DEBUG: Generated path with {len(path)} points")
+        # print(f"DEBUG: First path point: {path[0]}")
+        # print(f"DEBUG: Middle path point: {path[len(path)//2]}")
+        # print(f"DEBUG: Last path point: {path[-1]}")
+
+        self.current_frame = 0
+        self.spin_count = 0
+
         def update_camera():
-            self.visualizer.plotter.camera_position = path[self.current_frame]
-            self.current_frame = (self.current_frame + 1) % n_frames
 
-        _duration = duration
-        theta = np.linspace(0, 2 * np.pi, n_frames)
-        interval = int(_duration * 1000 / n_frames)
+            if self.current_frame < len(path):
+                pos = path[self.current_frame]
+                plotter.camera_position = [pos, center, orig_up]
+                if self.current_frame < len(path) - 1:
+                    self.current_frame += 1
+                plotter.render()
+            else:
+                self.current_frame = 0
+                self.spin_count += 1
 
-        path = np.c_[np.cos(theta), np.sin(theta), np.zeros_like(theta)]
-        angle_delta = 360 / n_frames
-        focal_points = []
-
-        cam = self.visualizer.plotter.camera
-        up = np.array(cam.up)
-
-        # Use the up vector as the rotation axis
-        local_up = up / np.linalg.norm(up)
-
-        # compute the new path
-        pos = np.array(cam.position)
-        focal = np.array(cam.focal_point)
-
-        self.current_frame = 0
-        for frame in range(n_frames):
-            tot_angle = frame * angle_delta
-
-            # Compute rotation matrix around local up vector
-            rot_matrix = rotation_matrix_axis_angle(local_up, tot_angle)
-
-            # Rotate the camera position relative to the focal point
-            pos_relative = pos - focal
-            pos_relative_rotated = rot_matrix @ pos_relative
-            new_pos = focal + pos_relative_rotated
-
-            # Rotate the view direction (focal point - position) to compute new focal point
-            view_dir = focal - pos
-            view_dir_rotated = rot_matrix @ view_dir
-            new_focal = new_pos + view_dir_rotated
-
-            # Up vector remains unchanged since we are rotating around it
-            path[frame] = tuple(new_pos)
-            focal_points.append(
-                tuple(new_focal)
-            )  # Changed from focal_points[frame] to focal_points.append()
-            pos = new_pos
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(update_camera)
-        self.current_frame = 0
+                if self.spin_count >= spins:
+                    self.visualizer.status = "Spin complete."
+                    self.timer.stop()
+                    self.update_status_display("Spin complete.")
 
         def stop_timer():
             self.timer.stop()
             self.update_status_display("Spin complete.")
+            self.reset_view()
 
-        self.update_status_display("Spinning scene...")
-        self.timer.start(interval)
-        QTimer.singleShot(duration * 1000, stop_timer)
-
-    def Ospin_camera(self, duration=5, n_frames=150):
-        """
-        Spins the camera around the z-axis in an orbital path.
-        """
-        theta = np.linspace(0, 2 * np.pi, n_frames)
-        path = np.c_[np.cos(theta), np.sin(theta), np.zeros_like(theta)]
-        _duration = duration
-
-        def update_camera():
-            self.visualizer.plotter.camera_position = path[self.current_frame]
-            self.current_frame = (self.current_frame + 1) % n_frames
-
+        # Set up and start timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(update_camera)
-        self.current_frame = 0
+        interval = int(1000 / fps)  # milliseconds per frame
 
-        def stop_timer():
-            self.timer.stop()
-            self.update_status_display("Spin complete.")
+        # Debug: Log timer setup
+        print(f"DEBUG: Setting up timer with interval {interval}ms ({fps} fps)")
 
         self.update_status_display("Spinning scene...")
-        interval = int(_duration * 1000 / n_frames)
+
+        # Debug: Log timer start
+        print("DEBUG: Starting timer")
+
         self.timer.start(interval)
-        QTimer.singleShot(duration * 1000, stop_timer)
+        QTimer.singleShot(int(duration * 1000 * 4), stop_timer)
 
 
 if __name__ == "__main__":
