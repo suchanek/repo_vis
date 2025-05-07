@@ -1,4 +1,4 @@
-# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413
+# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401
 
 """
 Module: visualize_repository_qt
@@ -16,7 +16,7 @@ Usage:
 Run: python visualize_repository_qt.py
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-05 23:00:00
+Last modified: 2025-05-07 15:43:15
 """
 
 import logging
@@ -59,13 +59,7 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
-from utility import (
-    can_import,
-    collect_elements,
-    fibonacci_sphere,
-    rotation_matrix_axis_angle,
-    set_pyvista_theme,
-)
+from utility import can_import, collect_elements, fibonacci_sphere, set_pyvista_theme
 
 # Constants
 ORIGIN: Tuple[float, float, float] = (0, 0, 0)
@@ -187,8 +181,6 @@ def create_3d_visualization(
     )
     # plotter.add_light(pv.Light(position=(0, 0, 100), color="white", intensity=0.5))
 
-    plotter.view_xy()
-
     package_center: np.ndarray = np.array([0, 0, 0])
     package_name: str = Path(save_path).stem
     package_radius: float = 1.0
@@ -202,7 +194,10 @@ def create_3d_visualization(
         smooth_shading=False,
         name="package",
     )
+
     plotter.reset_camera()
+    plotter.view_xy()
+    plotter.camera.focal_point = [0, 0, 0]
 
     num_classes: int = len([e for e in elements if e["type"] == "class"])
     viz_instance.status = f"Rendering {num_classes} classes..."
@@ -252,7 +247,9 @@ def create_3d_visualization(
                 progress.update(task, completed=class_index)
                 QApplication.processEvents()
 
-    plotter.reset_camera()
+    plotter.view_xy()
+    plotter.camera.focal_point = [0, 0, 0]
+
     rprint("[bold green]Finished rendering classes![/bold green]")
     logger.info("Finished rendering classes!")
 
@@ -300,7 +297,7 @@ def create_3d_visualization(
                 }
                 line: pv.PolyData = pv.Line(package_center, pos)
                 plotter.add_mesh(line, color="green", line_width=2)
-                plotter.reset_camera()
+                # plotter.reset_camera()
 
                 update_interval: int = max(1, int(num_functions * 0.20))
                 if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
@@ -379,6 +376,9 @@ def create_3d_visualization(
         logger.info("Finished rendering methods!")
 
     plotter.reset_camera()
+    plotter.view_xy()
+    plotter.camera.focal_point = [0, 0, 0]
+    plotter.render()
     QApplication.processEvents()
 
     num_methods: int = sum(
@@ -1026,11 +1026,16 @@ class MainWindow(QMainWindow):
 
     def reset_camera(self) -> None:
         """
-        Reset the camera to its default position.
+        Reset the camera to its default position and update the status.
         """
-        self.vtk_widget.view_xy()
-        self.vtk_widget.reset_camera()
-        self.vtk_widget.render()
+        plotter = self.visualizer.plotter  # Access the plotter from the visualizer
+        if plotter:
+            self.vtk_widget.view_xy()
+            plotter.camera.focal_point = [0, 0, 0]
+            self.visualizer.status = "Camera reset to default position."
+            print(f"Camera focal point after rendering: {plotter.camera.focal_point}")
+        else:
+            self.visualizer.status = "Plotter is not initialized."
 
     def save_current_view(self) -> None:
         """
@@ -1091,9 +1096,7 @@ class MainWindow(QMainWindow):
         """
         Reset the view to its default orientation (XY-plane).
         """
-        self.vtk_widget.view_xy()  # Reset the view to the XY-plane
-        self.vtk_widget.reset_camera()  # Reset the camera to its default position
-        self.vtk_widget.render()  # Re-render the scene
+        self.reset_camera()
         self.visualizer.status = "View reset to default orientation."
 
     # Function to compute rotation matrix around an arbitrary axis
@@ -1120,6 +1123,7 @@ class MainWindow(QMainWindow):
 
         # Get current camera state
         plotter = self.visualizer.plotter
+        self.reset_camera()
 
         # Debug: Log center point
         print(f"DEBUG: Scene center at {center}")
