@@ -8,12 +8,14 @@ Parses classes, methods, and functions, rendering them as 3D objects using PyVis
 
 Key Features:
 - Extracts repository structure using AST.
-- Visualizes classes (red dodecahedrons, scaled by method count), methods (blue spheres), and functions (green cylinders around package center).
+- Visualizes classes (red dodecahedrons, scaled by method count), methods (blue spheres),
+ and functions (green cylinders around package center).
 - Interactive UI for customizing and saving visualizations (HTML, PNG, JPEG).
-- Supports picking of classes, methods, and functions to display their docstrings via cell picking.
+- Supports picking of classes, methods, and functions to display their docstrings
+ via cell picking.
 
 Usage:
-Run: python visualize_repository_qt.py
+Run: python repovis.py
 
 Author: Eric G. Suchanek, PhD
 Last modified: 2025-05-07 15:43:15
@@ -59,7 +61,13 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
-from utility import can_import, collect_elements, fibonacci_sphere, set_pyvista_theme
+from utility import (
+    can_import,
+    collect_elements,
+    fibonacci_sphere,
+    format_docstring_to_markdown,
+    set_pyvista_theme,
+)
 
 # Constants
 ORIGIN: Tuple[float, float, float] = (0, 0, 0)
@@ -175,11 +183,31 @@ def create_3d_visualization(
     plotter.disable_parallel_projection()
     plotter.enable_anti_aliasing("msaa")
     plotter.add_axes()
-    plotter.add_light(pv.Light(position=(50, 100, 100), color="white", intensity=1.0))
-    plotter.add_light(
-        pv.Light(position=(-50, -100, -100), color="white", intensity=0.5)
-    )
-    # plotter.add_light(pv.Light(position=(0, 0, 100), color="white", intensity=0.5))
+
+    # Reset plotter
+    plotter.clear_actors()
+    plotter.remove_all_lights()
+
+    # Add directional lights from multiple angles
+    directional_lights = [
+        pv.Light(
+            position=(50, 50, 50), focal_point=(0, 0, 0), color="white", intensity=0.4
+        ),
+        pv.Light(
+            position=(-50, -50, -50),
+            focal_point=(0, 0, 0),
+            color="white",
+            intensity=0.4,
+        ),
+    ]
+
+    # plotter.add_light(directional_lights[0])
+    for light in directional_lights:
+        plotter.add_light(light)
+
+    # Optional: Add a headlight (camera-attached light) for additional illumination
+    headlight = pv.Light(light_type="headlight", color="white", intensity=0.9)
+    plotter.add_light(headlight)
 
     package_center: np.ndarray = np.array([0, 0, 0])
     package_name: str = Path(save_path).stem
@@ -547,7 +575,7 @@ class MainWindow(QMainWindow):
 
             popup = DocstringPopup(
                 f"Class: {class_name}",
-                class_element.get("docstring", ""),
+                format_docstring_to_markdown(class_element.get("docstring", "")),
                 self,
                 on_close_callback=self.reset_picking_state,
             )
@@ -580,7 +608,7 @@ class MainWindow(QMainWindow):
 
             popup = DocstringPopup(
                 f"Function: {function_name}",
-                function_element.get("docstring", ""),
+                format_docstring_to_markdown(function_element.get("docstring", "")),
                 self,
                 on_close_callback=self.reset_picking_state,
             )
@@ -749,12 +777,6 @@ class MainWindow(QMainWindow):
         self.reset_camera_button.setObjectName("reset")
         button_row.addWidget(self.reset_camera_button)
 
-        self.reset_view_button: QPushButton = QPushButton("Reset Orientation")
-        self.reset_view_button.setFixedWidth(130)
-        self.reset_view_button.setObjectName("reset-view")
-        button_row.addWidget(self.reset_view_button)
-
-        self.reset_view_button.clicked.connect(self.reset_view)
         self.save_button.clicked.connect(self.save_current_view)
 
         self.status_display: QLabel = QLabel("Ready")
@@ -792,7 +814,7 @@ class MainWindow(QMainWindow):
         self.vtk_widget.enable_mesh_picking(
             callback=self.on_pick,  # Callback function for picking
             show=False,  # Show the picked cell - we do this ourselves
-            show_actors=True,  # Show the picked actors
+            show_actors=False,  # Show the picked actors
             show_message=True,  # Display a message when picking
             font_size=14,  # Font size for messages
             left_clicking=False,  # Enable left-click picking
@@ -866,7 +888,10 @@ class MainWindow(QMainWindow):
 
             # Show the docstring popup
             popup = DocstringPopup(
-                title, docstring, self, on_close_callback=self.reset_picking_state
+                title,
+                format_docstring_to_markdown(docstring),
+                self,
+                on_close_callback=self.reset_picking_state,
             )
             popup.exec_()
         else:
@@ -1030,10 +1055,11 @@ class MainWindow(QMainWindow):
         """
         plotter = self.visualizer.plotter  # Access the plotter from the visualizer
         if plotter:
-            self.vtk_widget.view_xy()
+            self.vtk_widget.view_xy(render=False)
             plotter.camera.focal_point = [0, 0, 0]
+            plotter.camera.up = [0, 1, 0]
+            plotter.camera.right = [-1, 0, 0]
             self.visualizer.status = "Camera reset to default position."
-            print(f"Camera focal point after rendering: {plotter.camera.focal_point}")
         else:
             self.visualizer.status = "Plotter is not initialized."
 
@@ -1092,13 +1118,6 @@ class MainWindow(QMainWindow):
             logger.error("Failed to save: %s", e)
             self.visualizer.status = f"Error saving visualization: {str(e)}"
 
-    def reset_view(self) -> None:
-        """
-        Reset the view to its default orientation (XY-plane).
-        """
-        self.reset_camera()
-        self.visualizer.status = "View reset to default orientation."
-
     # Function to compute rotation matrix around an arbitrary axis
 
     def spin_camera(self):
@@ -1124,55 +1143,21 @@ class MainWindow(QMainWindow):
         # Get current camera state
         plotter = self.visualizer.plotter
         self.reset_camera()
+        self.visualizer.status = "Spinning camera..."
 
-        # Debug: Log center point
-        print(f"DEBUG: Scene center at {center}")
-
-        center_pos = np.array(center)
+        center_pos = center
+        up = np.array((0, 1, 0))
 
         # Calculate orbit radius from current position
         current_pos = np.array(plotter.camera_position[0])
         radius = np.linalg.norm(current_pos - center_pos)
 
-        # Debug: Log camera position and radius
-        print(f"DEBUG: Initial camera position: {current_pos}")
-        print(f"DEBUG: Orbit radius: {radius}")
-
-        # Store original camera position and view up
-        orig_pos = current_pos
-        orig_up = np.array(plotter.camera.up)
-        # Debug: Log camera up vector
-        print(f"DEBUG: Camera up vector: {orig_up}")
-
-        # Calculate the orbit plane
-        view_dir = center_pos - orig_pos
-        view_dir = view_dir / np.linalg.norm(view_dir)
-        right = np.cross(orig_up, view_dir)
-        right = right / np.linalg.norm(right)
-
-        # new_up = np.cross(view_dir, right)
-        new_up = orig_up
-
-        # Debug: Log orbit plane vectors
-        print(f"DEBUG: View direction: {view_dir}")
-        print(f"DEBUG: Right vector: {right}")
-        print(f"DEBUG: New up vector: {new_up}")
-
         # Generate orbit path
         theta = np.linspace(0, 2 * np.pi, n_points)
-
-        # Debug: Log theta range
-        print(f"DEBUG: Theta range: {theta[0]} to {theta[-1]} with {len(theta)} points")
 
         path = np.c_[
             radius * np.cos(theta), np.zeros_like(theta), radius * np.sin(theta)
         ]
-
-        # Debug: Log path length and sample points
-        # print(f"DEBUG: Generated path with {len(path)} points")
-        # print(f"DEBUG: First path point: {path[0]}")
-        # print(f"DEBUG: Middle path point: {path[len(path)//2]}")
-        # print(f"DEBUG: Last path point: {path[-1]}")
 
         self.current_frame = 0
         self.spin_count = 0
@@ -1181,7 +1166,7 @@ class MainWindow(QMainWindow):
 
             if self.current_frame < len(path):
                 pos = path[self.current_frame]
-                plotter.camera_position = [pos, center, orig_up]
+                plotter.camera_position = [pos, center, up]
                 if self.current_frame < len(path) - 1:
                     self.current_frame += 1
                 plotter.render()
@@ -1190,30 +1175,20 @@ class MainWindow(QMainWindow):
                 self.spin_count += 1
 
                 if self.spin_count >= spins:
-                    self.visualizer.status = "Spin complete."
                     self.timer.stop()
                     self.update_status_display("Spin complete.")
 
         def stop_timer():
             self.timer.stop()
             self.update_status_display("Spin complete.")
-            self.reset_view()
 
         # Set up and start timer
         self.timer = QTimer(self)
         self.timer.timeout.connect(update_camera)
         interval = int(1000 / fps)  # milliseconds per frame
 
-        # Debug: Log timer setup
-        print(f"DEBUG: Setting up timer with interval {interval}ms ({fps} fps)")
-
-        self.update_status_display("Spinning scene...")
-
-        # Debug: Log timer start
-        print("DEBUG: Starting timer")
-
-        self.timer.start(interval)
-        QTimer.singleShot(int(duration * 1000 * 4), stop_timer)
+        self.timer.start(int(interval / 2))
+        QTimer.singleShot(int(duration * 1000 * 2), stop_timer)
 
 
 if __name__ == "__main__":
@@ -1224,3 +1199,5 @@ if __name__ == "__main__":
     window.resize(1200, 800)
     window.show()
     app.exec_()
+
+# end of file

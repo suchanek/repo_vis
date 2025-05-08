@@ -1,3 +1,24 @@
+"""
+Utility Module for Repository Visualization
+
+This module provides utility functions and configurations to support the 3D visualization
+of Python repository structures. It includes functions for parsing Python files, collecting
+classes and functions, generating points on a sphere, determining system themes, and
+configuring PyVista themes. Additionally, it offers a function to format Python docstrings
+into Markdown for better readability.
+
+Key Features:
+- Parse Python files to extract class and function definitions using AST.
+- Collect elements (classes and functions) from a repository.
+- Generate points on a sphere using the Fibonacci spiral algorithm.
+- Determine the system's display theme (light or dark) based on the operating system.
+- Configure PyVista themes and font sizes for visualization.
+- Format Python docstrings in :param: style to Markdown.
+
+Author: Eric G. Suchanek, PhD
+Last Modified: 2025-05-07
+"""
+
 import ast
 import logging
 import os
@@ -20,6 +41,11 @@ logger.setLevel(logging.WARNING)
 def parse_file(file_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
     """
     Parse a Python file and extract class and function definitions using AST.
+
+    :param file_path: Path to the Python file to parse.
+    :type file_path: str
+    :return: A list of dictionaries containing class and function details.
+    :rtype: List[Dict[str, Union[str, int, List[str]]]]
     """
     try:
         with open(file_path, "r", encoding="utf-8") as file:
@@ -64,6 +90,11 @@ def parse_file(file_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
 def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
     """
     Collect class and function elements from all Python files in a repository.
+
+    :param repo_path: Path to the repository to analyze.
+    :type repo_path: str
+    :return: A list of dictionaries containing class and function details.
+    :rtype: List[Dict[str, Union[str, int, List[str]]]]
     """
     elements: List[Dict[str, Union[str, int, List[str]]]] = []
     seen_classes: set = set()
@@ -92,6 +123,15 @@ def fibonacci_sphere(
 ) -> List[np.ndarray]:
     """
     Generate points on a sphere using the Fibonacci spiral algorithm.
+
+    :param samples: Number of points to generate.
+    :type samples: int
+    :param radius: Radius of the sphere.
+    :type radius: float
+    :param center: Center of the sphere as a numpy array.
+    :type center: Optional[np.ndarray]
+    :return: A list of numpy arrays representing points on the sphere.
+    :rtype: List[np.ndarray]
     """
     if center is None:
         center = np.array([0, 0, 0])
@@ -131,6 +171,9 @@ def can_import(module_name: str) -> Optional[object]:
 def get_theme() -> str:
     """
     Determine the display theme for the current operating system.
+
+    :return: The system's display theme ('light' or 'dark').
+    :rtype: str
     """
     system: str = platform.system()
 
@@ -226,6 +269,9 @@ def get_theme() -> str:
 def get_platform_dpi_scale() -> float:
     """
     Get the DPI scale factor based on the current platform.
+
+    :return: The DPI scale factor.
+    :rtype: float
     """
     if platform.system().startswith("Windows"):
         return 1.25
@@ -238,6 +284,13 @@ def get_platform_dpi_scale() -> float:
 def set_pyvista_theme(theme: str, verbose: bool = False) -> str:
     """
     Set the PyVista theme based on the provided theme parameter.
+
+    :param theme: The desired theme ('auto', 'light', or 'dark').
+    :type theme: str
+    :param verbose: Whether to log detailed information about the theme configuration.
+    :type verbose: bool
+    :return: The applied theme ('light' or 'dark').
+    :rtype: str
     """
     _theme: str = get_theme()
 
@@ -276,8 +329,17 @@ def set_pyvista_theme(theme: str, verbose: bool = False) -> str:
     return _theme
 
 
-def rotation_matrix_axis_angle(axis, angle_deg):
-    """Compute a rotation matrix for a given axis and angle (in degrees)."""
+def rotation_matrix_axis_angle(axis: List[float], angle_deg: float) -> np.ndarray:
+    """
+    Compute a rotation matrix for a given axis and angle (in degrees).
+
+    :param axis: The axis of rotation as a list of three floats.
+    :type axis: List[float]
+    :param angle_deg: The angle of rotation in degrees.
+    :type angle_deg: float
+    :return: A 3x3 numpy array representing the rotation matrix.
+    :rtype: np.ndarray
+    """
     angle_rad = np.radians(angle_deg)
     axis = np.array(axis) / np.linalg.norm(axis)  # Normalize axis
     c = np.cos(angle_rad)
@@ -291,6 +353,46 @@ def rotation_matrix_axis_angle(axis, angle_deg):
             [t * x * z - y * s, t * y * z + x * s, t * z * z + c],
         ]
     )
+
+
+def format_docstring_to_markdown(docstring: str) -> str:
+    """
+    Convert a Python docstring in :param: style to a Markdown-formatted string.
+
+    :param docstring: The input docstring to format.
+    :type docstring: str
+    :return: A Markdown-formatted string.
+    :rtype: str
+    """
+    import re
+
+    if not docstring:
+        return "No docstring available."
+
+    # Split the docstring into lines
+    lines = docstring.strip().split("\n")
+
+    # Initialize Markdown components
+    markdown_lines = []
+    markdown_lines.append(f"# {lines[0]}")  # Title from the first line
+
+    # Process the rest of the lines
+    for line in lines[1:]:
+        line = line.strip()
+        if line.startswith(":param"):
+            match = re.match(r":param (\w+): (.+)", line)
+            if match:
+                param_name, param_desc = match.groups()
+                markdown_lines.append(f"- **{param_name}**: {param_desc}")
+        elif line.startswith(":type") or line.startswith(":rtype"):
+            continue  # Skip type annotations
+        elif line.startswith(":return:"):
+            return_desc = line.replace(":return:", "**Returns:**")
+            markdown_lines.append(return_desc)
+        else:
+            markdown_lines.append(line)
+
+    return "\n".join(markdown_lines)
 
 
 # End of file
