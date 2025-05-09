@@ -104,6 +104,9 @@ class DocstringPopup(QDialog):
         self.setMinimumSize(600, 400)
         self.on_close_callback = on_close_callback
 
+        # Set the dialog to be modeless
+        self.setWindowModality(Qt.NonModal)
+
         # Position the popup in the upper left of the screen
         if parent:
             screen_geometry = parent.screen().geometry()
@@ -268,6 +271,7 @@ def create_3d_visualization(
                 height=np.linalg.norm(pos - package_center),
                 center=(pos + package_center) / 2,
                 direction=pos - package_center,
+                resolution=8,
             )
             plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
             update_interval: int = max(1, int(num_classes * 0.20))
@@ -373,9 +377,10 @@ def create_3d_visualization(
                 if members:
                     method_positions: List[np.ndarray] = fibonacci_sphere(
                         len(members),
-                        radius=member_radius_scale * 0.75,
+                        radius=member_radius_scale * 0.6,
                         center=class_pos,
                     )
+
                     for j, member in enumerate(members):
                         sphere: pv.PolyData = pv.Sphere(
                             radius=0.225 / 2, center=method_positions[j]
@@ -403,7 +408,7 @@ def create_3d_visualization(
         rprint("[bold green]Finished rendering methods![/bold green]")
         logger.info("Finished rendering methods!")
 
-    plotter.reset_camera()
+    # plotter.reset_camera()
     plotter.view_xy()
     plotter.camera.focal_point = [0, 0, 0]
     plotter.render()
@@ -579,7 +584,7 @@ class MainWindow(QMainWindow):
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.exec_()
+            popup.show()  # Changed from exec_() to show()
 
     def show_function_docstring(self, item) -> None:
         """
@@ -612,7 +617,7 @@ class MainWindow(QMainWindow):
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.exec_()
+            popup.show()  # Changed from exec_() to show()
 
     def highlight_actor(self, actor):
         """
@@ -702,12 +707,12 @@ class MainWindow(QMainWindow):
         control_panel.addWidget(self.class_radius_slider)
 
         self.member_radius_scale_slider: QSlider = QSlider(Qt.Horizontal)
-        self.member_radius_scale_slider.setMinimum(6)
+        self.member_radius_scale_slider.setMinimum(10)
         self.member_radius_scale_slider.setMaximum(20)
         self.member_radius_scale_slider.setValue(
             int(self.visualizer.member_radius_scale * 10)
         )
-        self.member_radius_scale_slider.setTickInterval(1)
+        self.member_radius_scale_slider.setTickInterval(2)
         self.member_radius_scale_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.member_radius_scale_slider)
         control_panel.addWidget(QLabel("Member Radius Scale"))
@@ -749,7 +754,6 @@ class MainWindow(QMainWindow):
             self.function_selector.addItem(item)
         control_panel.addWidget(self.function_selector)
 
-        # Move the visualize button from the button row to the control panel
         self.visualize_button: QPushButton = QPushButton("Visualize Repository")
         control_panel.addWidget(self.visualize_button)
 
@@ -761,7 +765,6 @@ class MainWindow(QMainWindow):
 
         button_row: QHBoxLayout = QHBoxLayout()
 
-        # Move spin button to the button row (left of save button)
         self.button_spin = QPushButton("Spin Repository")
         self.button_spin.clicked.connect(self.spin_camera)
         self.button_spin.setFixedWidth(150)
@@ -772,9 +775,13 @@ class MainWindow(QMainWindow):
         self.save_button.setFixedWidth(150)
         button_row.addWidget(self.save_button)
 
-        self.reset_camera_button: QPushButton = QPushButton("Reset Zoom")
+        # Change the color of the reset zoom button to red and rename it to 'Reset View'
+        self.reset_camera_button: QPushButton = QPushButton("Reset View")
         self.reset_camera_button.setFixedWidth(100)
-        self.reset_camera_button.setObjectName("reset")
+        self.reset_camera_button.setObjectName("reset-view")
+        self.reset_camera_button.setStyleSheet(
+            "background-color: '#FF0000'; color: white;"
+        )
         button_row.addWidget(self.reset_camera_button)
 
         self.save_button.clicked.connect(self.save_current_view)
@@ -817,7 +824,7 @@ class MainWindow(QMainWindow):
             show_actors=False,  # Show the picked actors
             show_message=True,  # Display a message when picking
             font_size=14,  # Font size for messages
-            left_clicking=False,  # Enable left-click picking
+            left_clicking=False,  # Enable right-click picking
             use_actor=True,  # Return the picked actor
         )
 
@@ -893,7 +900,7 @@ class MainWindow(QMainWindow):
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.exec_()
+            popup.show()
         else:
             self.update_status_display("No object picked.")
             self.reset_picking_state()
@@ -972,6 +979,9 @@ class MainWindow(QMainWindow):
         """
         self.visualizer.member_radius_scale = value / 10.0
         self.visualizer.visualize()
+        rprint(
+            f"[bold green]Member radius scale updated to {self.visualizer.member_radius_scale}[/bold green]"
+        )
 
     def update_selected_classes(self) -> None:
         """
@@ -1163,7 +1173,6 @@ class MainWindow(QMainWindow):
         self.spin_count = 0
 
         def update_camera():
-
             if self.current_frame < len(path):
                 pos = path[self.current_frame]
                 plotter.camera_position = [pos, center, up]
@@ -1175,8 +1184,8 @@ class MainWindow(QMainWindow):
                 self.spin_count += 1
 
                 if self.spin_count >= spins:
-                    self.timer.stop()
-                    self.update_status_display("Spin complete.")
+                    self.stop_timer()
+                    return
 
         def stop_timer():
             self.timer.stop()
