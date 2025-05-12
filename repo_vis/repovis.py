@@ -21,6 +21,7 @@ Author: Eric G. Suchanek, PhD
 Last modified: 2025-05-07 15:43:15
 """
 
+import argparse  # Add argparse for command-line arguments
 import logging
 import os
 import sys
@@ -72,9 +73,23 @@ from utility import (
 # Constants
 ORIGIN: Tuple[float, float, float] = (0, 0, 0)
 DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
+
 DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
 DEFAULT_SAVE_PATH: str = os.path.join(os.path.expanduser("~"), "Desktop")
 DEFAULT_SAVE_NAME: str = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
+
+PACKAGE_RADIUS: float = 1.0
+PACKAGE_COLOR: str = "purple"
+PACKAGE_MESH: pv.PolyData = pv.Icosahedron(center=ORIGIN, radius=PACKAGE_RADIUS)
+
+CLASS_OBJECT_RADIUS: float = 0.5 * PACKAGE_RADIUS
+CLASS_COLOR: str = "green"
+
+METHOD_OBJECT_RADIUS: float = 0.40 * CLASS_OBJECT_RADIUS
+METHOD_COLOR: str = "blue"
+
+FUNCTION_OBJECT_RADIUS: float = 0.08
+FUNCTION_COLOR: str = "red"
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, handlers=[RichHandler()])
@@ -212,9 +227,9 @@ def create_3d_visualization(
     headlight = pv.Light(light_type="headlight", color="white", intensity=0.9)
     plotter.add_light(headlight)
 
-    package_center: np.ndarray = np.array([0, 0, 0])
+    package_center: np.ndarray = np.array(ORIGIN)
     package_name: str = Path(save_path).stem
-    package_radius: float = 1.0
+    package_radius: float = PACKAGE_RADIUS
     package_mesh: pv.PolyData = pv.Icosahedron(
         center=package_center, radius=package_radius
     )
@@ -231,6 +246,14 @@ def create_3d_visualization(
     plotter.camera.focal_point = [0, 0, 0]
 
     num_classes: int = len([e for e in elements if e["type"] == "class"])
+    num_functions: int = len([e for e in elements if e["type"] == "function"])
+    total_methods: int = sum(
+        len(class_elem.get("methods", []))
+        for class_elem in [e for e in elements if e["type"] == "class"]
+    )
+    rprint(
+        f"[bold green]Parsed {num_classes} classes and {num_functions} functions with a total of {total_methods} methods...[/bold green]"
+    )
     viz_instance.status = f"Rendering {num_classes} classes..."
     QApplication.processEvents()
     class_positions: List[np.ndarray] = fibonacci_sphere(
@@ -256,25 +279,33 @@ def create_3d_visualization(
             pos: np.ndarray = class_positions[class_index]
             class_index += 1
             method_count: int = len(element.get("methods", []))
-            scaled_radius: float = (0.75 / 2) * (1 + 0.1 * np.log(method_count + 1))
-            mesh: pv.PolyData = pv.Dodecahedron(radius=scaled_radius, center=pos)
+            # scaled_radius: float = (0.5 / 2) * (1 + 0.1 * np.log(method_count + 1))
+            mesh: pv.PolyData = pv.Dodecahedron(
+                radius=viz_instance.class_object_radius, center=pos
+            )
             class_actor = plotter.add_mesh(
-                mesh, color="red", show_edges=False, smooth_shading=False
+                mesh, color="green", show_edges=False, smooth_shading=False
             )
             actor_to_element[class_actor] = {
                 "type": "class",
                 "name": element["name"],
                 "docstring": element.get("docstring", ""),
             }
-            line: pv.PolyData = pv.Cylinder(
-                radius=0.025,
-                height=np.linalg.norm(pos - package_center),
-                center=(pos + package_center) / 2,
-                direction=pos - package_center,
-                resolution=8,
-            )
-            plotter.add_mesh(line, color="red", show_edges=False, smooth_shading=True)
-            update_interval: int = max(1, int(num_classes * 0.20))
+            if num_classes > 1000:
+                line: pv.PolyData = pv.Line(package_center, pos)
+                plotter.add_mesh(line, color="gray", line_width=2)
+            else:
+                line: pv.PolyData = pv.Cylinder(
+                    radius=0.025,
+                    height=np.linalg.norm(pos - package_center),
+                    center=(pos + package_center) / 2,
+                    direction=pos - package_center,
+                    resolution=8,
+                )
+                plotter.add_mesh(
+                    line, color="gray", show_edges=False, smooth_shading=False
+                )
+            update_interval: int = max(1, int(num_classes * 0.10))
             if class_index % update_interval == 0 or class_index == num_classes:
                 progress.update(task, completed=class_index)
                 QApplication.processEvents()
@@ -290,7 +321,9 @@ def create_3d_visualization(
         viz_instance.status = f"Rendering {num_functions} functions..."
         QApplication.processEvents()
         function_positions: List[np.ndarray] = fibonacci_sphere(
-            num_functions, radius=package_radius * 1.25, center=package_center
+            num_functions,
+            radius=package_radius * member_radius_scale,
+            center=package_center,
         )
 
         rprint(
@@ -316,11 +349,22 @@ def create_3d_visualization(
                 [e for e in elements if e["type"] == "function"]
             ):
                 pos: np.ndarray = function_positions[i]
-                mesh: pv.PolyData = pv.Cylinder(
-                    radius=0.15 / 2, height=0.15 / 2, center=pos, direction=(0, 0, 1)
-                )
+                if num_functions > 1000:
+                    # Use cubes for functions if the number exceeds 1000
+                    mesh: pv.PolyData = pv.Cube(
+                        center=pos, x_length=0.15, y_length=0.15, z_length=0.15
+                    )
+                else:
+                    # Use cylinders for functions otherwise
+                    mesh: pv.PolyData = pv.Cylinder(
+                        radius=FUNCTION_OBJECT_RADIUS,
+                        height=FUNCTION_OBJECT_RADIUS,
+                        center=pos,
+                        direction=(0, 0, 1),
+                        resolution=8,
+                    )
                 function_actor = plotter.add_mesh(
-                    mesh, color="green", show_edges=False, smooth_shading=True
+                    mesh, color="red", show_edges=False, smooth_shading=True
                 )
                 actor_to_element[function_actor] = {
                     "type": "function",
@@ -328,10 +372,9 @@ def create_3d_visualization(
                     "docstring": element.get("docstring", ""),
                 }
                 line: pv.PolyData = pv.Line(package_center, pos)
-                plotter.add_mesh(line, color="green", line_width=2)
-                # plotter.reset_camera()
+                plotter.add_mesh(line, color="gray", line_width=2)
 
-                update_interval: int = max(1, int(num_functions * 0.20))
+                update_interval: int = max(1, int(num_functions * 0.10))
                 if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
                     progress.update(func_task, completed=i + 1)
                     QApplication.processEvents()
@@ -341,11 +384,6 @@ def create_3d_visualization(
 
     viz_instance.status = "Rendering methods..."
     QApplication.processEvents()
-
-    total_methods: int = sum(
-        len(class_elem.get("methods", []))
-        for class_elem in [e for e in elements if e["type"] == "class"]
-    )
 
     if total_methods > 0:
         rprint(
@@ -377,16 +415,29 @@ def create_3d_visualization(
                 if members:
                     method_positions: List[np.ndarray] = fibonacci_sphere(
                         len(members),
-                        radius=member_radius_scale * 0.6,
+                        radius=member_radius_scale,
                         center=class_pos,
                     )
 
+                    # Dynamically scale the resolution of spheres and cylinders based on the number of elements
+                    num_elements = len(elements)
+                    resolution_scale = max(
+                        8, min(50, 5000 // num_elements)
+                    )  # Scale between 8 and 50
+
                     for j, member in enumerate(members):
-                        sphere: pv.PolyData = pv.Sphere(
-                            radius=0.225 / 2, center=method_positions[j]
+                        # Replace spheres with dodecahedrons for methods and scale them to be 0.75 times the class size
+                        # For volume to be 0.75 of class size, radius needs to be cube root of 0.75 times class radius
+
+                        method_mesh: pv.PolyData = pv.Dodecahedron(
+                            radius=viz_instance.method_object_radius,
+                            center=method_positions[j],
                         )
                         method_actor = plotter.add_mesh(
-                            sphere, color="blue", show_edges=False, smooth_shading=True
+                            method_mesh,
+                            color="blue",
+                            show_edges=False,
+                            smooth_shading=False,
                         )
                         actor_to_element[method_actor] = {
                             "type": "method",
@@ -442,10 +493,18 @@ class RepositoryVisualizer(param.Parameterized):
         objects=["html", "png", "jpg"], default="html", doc="Output format"
     )
     class_radius: float = param.Number(
-        default=4.0, bounds=(1.0, 10.0), step=0.5, doc="Class radius"
+        default=5.5, bounds=(2.0, 10.0), step=0.5, doc="Class radius"
     )
     member_radius_scale: float = param.Number(
         default=1.25, bounds=(0.5, 3.0), step=0.25, doc="Member radius scale"
+    )
+    class_object_radius: float = param.Number(
+        default=0.75,
+        doc="Radius of the class object, relative to the package object radius",
+    )
+    method_object_radius: float = param.Number(
+        default=METHOD_OBJECT_RADIUS,
+        doc="Radius of the method object, relative to the class object radius",
     )
     available_classes: List[str] = param.List(default=[], doc="Available classes")
     selected_classes: List[str] = param.ListSelector(
@@ -455,8 +514,17 @@ class RepositoryVisualizer(param.Parameterized):
     selected_functions: List[str] = param.ListSelector(
         default=[], objects=[], doc="Selected functions"
     )
-    include_functions: bool = param.Boolean(default=True, doc="Include functions")
+    include_functions: bool = param.Boolean(default=False, doc="Include functions")
     status: str = param.String(default="Ready", doc="Status")
+    num_classes: int = param.Integer(
+        default=0, doc="Number of classes in the repository"
+    )
+    num_functions: int = param.Integer(
+        default=0, doc="Number of functions in the repository"
+    )
+    num_methods: int = param.Integer(
+        default=0, doc="Number of methods in the repository"
+    )
 
     def __init__(self, plotter: Optional[pv.Plotter], **params: dict) -> None:
         """
@@ -471,23 +539,40 @@ class RepositoryVisualizer(param.Parameterized):
     @param.depends("repo_path", watch=True)
     def update_classes(self) -> None:
         """
-        Update the list of available classes and functions based on the repository path.
+        Update the list of available classes, functions, and methods based on the repository path.
         """
         if os.path.exists(self.repo_path):
             self.status = "Analyzing repository..."
             self.elements = collect_elements(self.repo_path)
+
+            # Compute the number of classes, functions, and methods
+            self.num_classes = len([e for e in self.elements if e["type"] == "class"])
+            self.num_functions = len(
+                [e for e in self.elements if e["type"] == "function"]
+            )
+            self.num_methods = sum(
+                len(e.get("methods", [])) for e in self.elements if e["type"] == "class"
+            )
+
+            # Update available classes and functions
             class_names: List[str] = sorted(
                 [e["name"] for e in self.elements if e["type"] == "class"]
             )
             self.available_classes = class_names
             self.param.selected_classes.objects = class_names
+
             function_names: List[str] = sorted(
                 [e["name"] for e in self.elements if e["type"] == "function"]
             )
             self.available_functions = function_names
             self.param.selected_functions.objects = function_names
+
             self.save_path = os.path.basename(self.repo_path)
             self.status = f"Repository loaded: {self.repo_path}"
+
+            # Update the window title
+            self.window_title = f"Repo: {self.repo_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods}"
+
             if self.plotter:
                 self.plotter.clear_actors()
         else:
@@ -699,9 +784,9 @@ class MainWindow(QMainWindow):
 
         control_panel.addWidget(QLabel("Class Radius"))
         self.class_radius_slider: QSlider = QSlider(Qt.Horizontal)
-        self.class_radius_slider.setMinimum(20)
-        self.class_radius_slider.setMaximum(100)
-        self.class_radius_slider.setValue(int(self.visualizer.class_radius * 10))
+        self.class_radius_slider.setMinimum(40)
+        self.class_radius_slider.setMaximum(200)
+        self.class_radius_slider.setValue(int(self.visualizer.class_radius * 20))
         self.class_radius_slider.setTickInterval(5)
         self.class_radius_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.class_radius_slider)
@@ -828,7 +913,9 @@ class MainWindow(QMainWindow):
             use_actor=True,  # Return the picked actor
         )
 
+        # Reconnect the repository path input to allow updates from the text field
         self.repo_path_input.editingFinished.connect(self.update_repo_path)
+
         self.save_path_input.textChanged.connect(self.update_save_path)
         self.save_format_select.currentTextChanged.connect(self.update_save_format)
         self.class_radius_slider.sliderReleased.connect(
@@ -861,6 +948,14 @@ class MainWindow(QMainWindow):
 
         self.class_selector.itemClicked.connect(self.show_class_docstring)
         self.function_selector.itemClicked.connect(self.show_function_docstring)
+
+        # Set the class radius slider to the middle of its range
+        # This overrides the earlier setValue call to ensure it starts at the default value
+        self.class_radius_slider.setValue(int(self.visualizer.class_radius * 20))
+
+        # Update the default font family to avoid the missing font warning
+        font = QFont("Arial", 12)  # Replace 'Sans-serif' with 'Arial'
+        self.setFont(font)
 
     def on_pick(self, actor):
         """
@@ -954,6 +1049,18 @@ class MainWindow(QMainWindow):
         self.visualizer.status = "Loading Repository..."
         self.visualizer.repo_path = text
 
+        # Simulate repository loading process
+        # Update the status to "Repository loaded" after loading
+        self.visualizer.status = "Repository loaded"
+
+        # Update the window title with new repository stats
+        num_classes = self.visualizer.num_classes
+        num_functions = self.visualizer.num_functions
+        num_methods = self.visualizer.num_methods
+        self.setWindowTitle(
+            f"Repo: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods}"
+        )
+
     def update_save_path(self, text: str) -> None:
         """
         Update the save path based on user input.
@@ -970,7 +1077,7 @@ class MainWindow(QMainWindow):
         """
         Update the class radius based on slider value.
         """
-        self.visualizer.class_radius = value / 10.0
+        self.visualizer.class_radius = value / 20.0
         self.visualizer.visualize()
 
     def update_member_radius_scale(self, value: int) -> None:
@@ -1152,7 +1259,7 @@ class MainWindow(QMainWindow):
 
         # Get current camera state
         plotter = self.visualizer.plotter
-        self.reset_camera()
+        # self.reset_camera()
         self.visualizer.status = "Spinning camera..."
 
         center_pos = center
@@ -1201,8 +1308,34 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="3D Visualization of Python Repository Structure"
+    )
+    parser.add_argument(
+        "--repo_path", type=str, help="Path to the input repository", required=True
+    )
+    parser.add_argument(
+        "--save_path",
+        type=str,
+        help="Path to save the output visualization. Defaults to the input repository name if not provided.",
+        required=False,
+    )
+    args = parser.parse_args()
+
+    # Use the parsed arguments to set the repository path and save path
+    repo_path = args.repo_path
+    save_path = (
+        args.save_path
+        if args.save_path
+        else os.path.basename(os.path.normpath(repo_path))
+    )
+
+    # Update the visualizer with the command-line arguments
+    visualizer: RepositoryVisualizer = RepositoryVisualizer(
+        plotter=None, repo_path=repo_path, save_path=save_path
+    )
     app: QApplication = QApplication([])
-    visualizer: RepositoryVisualizer = RepositoryVisualizer(plotter=None)
     window: MainWindow = MainWindow(visualizer)
     visualizer.plotter = window.vtk_widget
     window.resize(1200, 800)
