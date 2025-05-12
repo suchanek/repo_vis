@@ -1,4 +1,4 @@
-# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401
+# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401, W0601
 
 """
 Module: visualize_repository_qt
@@ -25,6 +25,7 @@ import argparse  # Add argparse for command-line arguments
 import logging
 import os
 import sys
+import time  # Add this import at the top of the file
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -308,6 +309,12 @@ def create_3d_visualization(
             update_interval: int = max(1, int(num_classes * 0.10))
             if class_index % update_interval == 0 or class_index == num_classes:
                 progress.update(task, completed=class_index)
+                # Update status with progress bar info
+                percent_complete = int((class_index / num_classes) * 100)
+                progress_bar = "█" * (percent_complete // 10) + "░" * (
+                    (100 - percent_complete) // 10
+                )
+                viz_instance.status = f"Rendering Classes progress | {progress_bar} {percent_complete}% ({class_index}/{num_classes})"
                 QApplication.processEvents()
 
     plotter.view_xy()
@@ -377,6 +384,12 @@ def create_3d_visualization(
                 update_interval: int = max(1, int(num_functions * 0.10))
                 if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
                     progress.update(func_task, completed=i + 1)
+                    # Update status with progress bar info
+                    percent_complete = int(((i + 1) / num_functions) * 100)
+                    progress_bar = "█" * (percent_complete // 10) + "░" * (
+                        (100 - percent_complete) // 10
+                    )
+                    viz_instance.status = f"Rendering Functions progress | {progress_bar} {percent_complete}% ({i+1}/{num_functions})"
                     QApplication.processEvents()
 
         rprint("[bold green]Finished rendering functions![/bold green]")
@@ -448,12 +461,18 @@ def create_3d_visualization(
                         plotter.add_mesh(line, color="blue", line_width=1)
                         method_count += 1
 
-                        update_interval: int = max(1, int(total_methods * 0.20))
+                        update_interval: int = max(1, int(total_methods * 0.10))
                         if (
                             method_count % update_interval == 0
                             or method_count == total_methods
                         ):
                             progress.update(method_task, completed=method_count)
+                            # Update status with progress bar info
+                            percent_complete = int((method_count / total_methods) * 100)
+                            progress_bar = "█" * (percent_complete // 10) + "░" * (
+                                (100 - percent_complete) // 10
+                            )
+                            viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
                             QApplication.processEvents()
 
         rprint("[bold green]Finished rendering methods![/bold green]")
@@ -797,7 +816,7 @@ class MainWindow(QMainWindow):
         self.member_radius_scale_slider.setValue(
             int(self.visualizer.member_radius_scale * 10)
         )
-        self.member_radius_scale_slider.setTickInterval(2)
+        self.member_radius_scale_slider.setTickInterval(1)
         self.member_radius_scale_slider.setTickPosition(QSlider.TicksBelow)
         control_panel.addWidget(self.member_radius_scale_slider)
         control_panel.addWidget(QLabel("Member Radius Scale"))
@@ -860,8 +879,8 @@ class MainWindow(QMainWindow):
         self.save_button.setFixedWidth(150)
         button_row.addWidget(self.save_button)
 
-        # Change the color of the reset zoom button to red and rename it to 'Reset View'
-        self.reset_camera_button: QPushButton = QPushButton("Reset View")
+        # Change the color of the reset zoom button to red and rename it to 'Reset Settings'
+        self.reset_camera_button: QPushButton = QPushButton("Reset Settings")
         self.reset_camera_button.setFixedWidth(100)
         self.reset_camera_button.setObjectName("reset-view")
         self.reset_camera_button.setStyleSheet(
@@ -934,7 +953,7 @@ class MainWindow(QMainWindow):
             self.update_include_functions
         )
         self.visualize_button.clicked.connect(self.visualizer.visualize)
-        self.reset_camera_button.clicked.connect(self.reset_camera)
+        self.reset_camera_button.clicked.connect(self.reset_settings)
         self.status_changed.connect(self.update_status_display)
         self.visualizer.param.watch(self.on_status_change, "status")
         self.visualizer.param.watch(self.update_class_selector, "available_classes")
@@ -1011,11 +1030,11 @@ class MainWindow(QMainWindow):
             element_type = self.visualizer.actor_to_element[actor]["type"]
             # Reset to original colors based on element type
             if element_type == "class":
-                actor.prop.color = "red"
+                actor.prop.color = "green"
             elif element_type == "method":
                 actor.prop.color = "blue"
             elif element_type == "function":
-                actor.prop.color = "green"
+                actor.prop.color = "red"
 
             # Reset edge properties
             actor.prop.show_edges = False
@@ -1049,17 +1068,21 @@ class MainWindow(QMainWindow):
         self.visualizer.status = "Loading Repository..."
         self.visualizer.repo_path = text
 
-        # Simulate repository loading process
-        # Update the status to "Repository loaded" after loading
-        self.visualizer.status = "Repository loaded"
+        # Update the save path to match the repository name
+        repo_name = os.path.basename(text)
+        self.visualizer.save_path = repo_name
+        self.save_path_input.setText(repo_name)
 
         # Update the window title with new repository stats
         num_classes = self.visualizer.num_classes
         num_functions = self.visualizer.num_functions
         num_methods = self.visualizer.num_methods
+
         self.setWindowTitle(
             f"Repo: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods}"
         )
+        # Update the status to "Repository loaded" after loading
+        self.visualizer.status = "Repository loaded"
 
     def update_save_path(self, text: str) -> None:
         """
@@ -1078,17 +1101,14 @@ class MainWindow(QMainWindow):
         Update the class radius based on slider value.
         """
         self.visualizer.class_radius = value / 20.0
-        self.visualizer.visualize()
+        # self.visualizer.visualize()
 
     def update_member_radius_scale(self, value: int) -> None:
         """
         Update the member radius scale based on slider value.
         """
         self.visualizer.member_radius_scale = value / 10.0
-        self.visualizer.visualize()
-        rprint(
-            f"[bold green]Member radius scale updated to {self.visualizer.member_radius_scale}[/bold green]"
-        )
+        # self.visualizer.visualize()
 
     def update_selected_classes(self) -> None:
         """
@@ -1123,26 +1143,60 @@ class MainWindow(QMainWindow):
         """
         Update the status display label with the current status.
         """
-        if status.startswith("Visualization saved to"):
-            save_path: str = status.split("Visualization saved to ")[-1].strip()
-            self.status_display.setText(
-                f"<span style='font-size:12px'>{save_path}</span> "
-            )
-        elif status.startswith("Error"):
-            self.status_display.setText(
-                f"<span style='color:#cc0000'><b>Error:</b> {status[6:]}</span>"
-            )
-        elif "Analyzing" in status or "Creating" in status:
-            self.status_display.setText(
-                f"<span style='color:#0066cc'><b>⏳ {status}</b></span>"
-            )
-        elif "Found" in status:
-            parts: List[str] = status.split("Found ")
-            self.status_display.setText(
-                f"<span style='color:#008800'><b>✓</b> Found {parts[1]}</span>"
-            )
-        else:
-            self.status_display.setText(status)
+        match status:
+            case status if status.startswith("Visualization saved to"):
+                save_path: str = status.split("Visualization saved to ")[-1].strip()
+                self.status_display.setText(
+                    f"<span style='font-size:12px'>{save_path}</span> "
+                )
+
+            case status if status.startswith("Error"):
+                self.status_display.setText(
+                    f"<span style='color:#cc0000'><b>💥 Error:</b> {status[6:]}</span>"
+                )
+
+            case status if "Analyzing" in status or "Creating" in status:
+                self.status_display.setText(
+                    f"<span style='color:#0066cc'><b>⏳ {status}</b></span>"
+                )
+
+            case status if "Ready" in status:
+                self.status_display.setText(
+                    f"<span style='color:#006600'><b>⏳ {status}</b></span>"
+                )
+
+            case status if "Scene generation" in status or "Spin complete" in status:
+                self.status_display.setText(
+                    f"<span style='color:#006600'><b>⏳ {status}</b></span>"
+                )
+                time.sleep(0.5)
+                status = "Ready"
+                self.status_display.setText(
+                    f"<span style='color:#006600'><b>⚡ {status}</b></span>"
+                )
+                self.status = status
+
+            case status if "Found" in status:
+                parts: List[str] = status.split("Found ")
+                self.status_display.setText(
+                    f"<span style='color:#008800'><b>✓</b> Found {parts[1]}</span>"
+                )
+
+            case status if "Rendering" in status and "%" not in status:
+                self.status_display.setText(status)
+
+            case status if "progress" in status:
+                progress_parts = status.split("|")
+                if len(progress_parts) >= 2:
+                    task_name = progress_parts[0].strip()
+                    progress_info = progress_parts[1].strip()
+                    self.status_display.setText(
+                        f"<span style='color:#0066cc'><b>{task_name}</b></span> | <span style='color:#008800'>{progress_info}</span>"
+                    )
+                else:
+                    self.status_display.setText(status)
+            case _:
+                self.status_display.setText(status)
 
     def update_class_selector(self, event: param.Event) -> None:
         """
@@ -1261,6 +1315,7 @@ class MainWindow(QMainWindow):
         plotter = self.visualizer.plotter
         # self.reset_camera()
         self.visualizer.status = "Spinning camera..."
+        self.update_status_display("Spinning camera...")
 
         center_pos = center
         up = np.array((0, 1, 0))
@@ -1305,6 +1360,45 @@ class MainWindow(QMainWindow):
 
         self.timer.start(int(interval / 2))
         QTimer.singleShot(int(duration * 1000 * 2), stop_timer)
+
+    def reset_settings(self) -> None:
+        """
+        Reset all settings to their default values, reset the view, and set status to 'Ready'.
+        """
+        # Define default values
+        default_class_radius = 5.5
+        default_member_radius_scale = 1.25
+
+        # Block signals temporarily to avoid multiple updates
+        # self.class_radius_slider.blockSignals(True)
+        # self.member_radius_scale_slider.blockSignals(True)
+
+        # Update the sliders' values (convert to slider scale)
+        self.class_radius_slider.setValue(int(default_class_radius * 20))
+        self.member_radius_scale_slider.setValue(int(default_member_radius_scale * 10))
+
+        # Unblock signals
+        # self.class_radius_slider.blockSignals(False)
+        # self.member_radius_scale_slider.blockSignals(False)
+
+        # Update the visualizer's parameters directly
+        self.visualizer.class_radius = default_class_radius
+        self.visualizer.member_radius_scale = default_member_radius_scale
+
+        # Force UI update
+        self.class_radius_slider.update()
+        self.member_radius_scale_slider.update()
+        QApplication.processEvents()
+
+        # Reset the view
+        self.reset_camera()
+
+        # Set status to 'Ready'
+        self.visualizer.status = "Ready"
+        self.update_status_display("Ready")
+
+        # Visualize with the new settings
+        self.visualizer.visualize()
 
 
 if __name__ == "__main__":
