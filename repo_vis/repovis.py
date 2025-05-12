@@ -880,13 +880,13 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.save_button)
 
         # Change the color of the reset zoom button to red and rename it to 'Reset Settings'
-        self.reset_camera_button: QPushButton = QPushButton("Reset Settings")
-        self.reset_camera_button.setFixedWidth(100)
-        self.reset_camera_button.setObjectName("reset-view")
-        self.reset_camera_button.setStyleSheet(
+        self.reset_settings_button: QPushButton = QPushButton("Reset Settings")
+        self.reset_settings_button.setFixedWidth(100)
+        self.reset_settings_button.setObjectName("reset-view")
+        self.reset_settings_button.setStyleSheet(
             "background-color: '#FF0000'; color: white;"
         )
-        button_row.addWidget(self.reset_camera_button)
+        button_row.addWidget(self.reset_settings_button)
 
         self.save_button.clicked.connect(self.save_current_view)
 
@@ -953,7 +953,7 @@ class MainWindow(QMainWindow):
             self.update_include_functions
         )
         self.visualize_button.clicked.connect(self.visualizer.visualize)
-        self.reset_camera_button.clicked.connect(self.reset_settings)
+        self.reset_settings_button.clicked.connect(self.reset_settings)
         self.status_changed.connect(self.update_status_display)
         self.visualizer.param.watch(self.on_status_change, "status")
         self.visualizer.param.watch(self.update_class_selector, "available_classes")
