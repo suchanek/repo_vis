@@ -753,7 +753,7 @@ class MainWindow(QMainWindow):
 
         self.setStyleSheet(
             """
-            QWidget { font-family: Arial, sans-serif; font-size: 12px; }
+            QWidget { font-family: Arial; font-size: 12px; }
             QLineEdit, QComboBox, QListWidget, QCheckBox, QPushButton, QLabel { margin: 2px; padding: 3px; }
             QLineEdit, QComboBox, QListWidget { border: 1px solid #ddd; border-radius: 3px; }
             QPushButton { background-color: '#4CAF50'; color: white; border: none; border-radius: 3px; padding: 6px; }

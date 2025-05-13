@@ -9,12 +9,13 @@
   - Uses cubes for functions when their count exceeds 1000 for better performance and clarity.
 
 - **Interactive UI**:
-  - Includes sliders to control various visualization parameters.
+  - Includes sliders to control class and method radii.
   - "Reset Settings" button to restore default slider values and camera position.
+  - Selecting a class or method will highlight the object on the screen and pop up the docstring.
 
 - **Customizable Appearance**:
   - Supports dynamic scaling of class and method objects using `class_object_radius` and `method_object_radius`.
-  - Improved font handling with "Arial" for better rendering.
+  - System theme-aware. The program will track light/dark mode system settings automatically
 
 - **Code Insights**:
   - Displays the hierarchy and relationships between classes, methods, and functions in a repository.
@@ -27,6 +28,23 @@
 2. **UI Improvements**:
    - Added a "Reset Settings" button for convenience.
 
+## Installation
+
+- Install poetry
+
+- Build the env:
+
+```console
+poetry install
+```
+
+- Launch the program
+
 ## Usage
 
-To use `repo_vis`, run the `repovis.py` script and follow the on-screen instructions to load and visualize a Python repository. The application provides an intuitive interface to navigate and explore the repository's structure.
+To use `repovis`:
+
+```console
+$ source .venv/bin/activate
+$ python repo_vis/repovis.py --repo_path <path to repository source>
+```
