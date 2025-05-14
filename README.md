@@ -1,6 +1,6 @@
 # repovis
 
-`repovis` is a Python-based application that visualizes the structure of Python repositories in 3D. It provides an interactive and dynamic way to explore the Classes, Methods, and Functions within a repository. Built using Panel and other visualization libraries, the tool is designed for developers and researchers who want to gain insights into codebases visually.
+`repovis` is a Python-based application that visualizes the structure of Python repositories in 3D. It provides an interactive and dynamic way to explore the Classes, Methods, and Functions within a repository. Built using Pyvista and pyqt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The ``examples`` directory has some exported .html files representing some of the most significant Python repositories currently.
 
 ## Features
 
@@ -45,6 +45,11 @@ poetry install
 To use `repovis`:
 
 ```console
-$ source .venv/bin/activate
-$ python repo_vis/repovis.py --repo_path <path to repository source>
+source .venv/bin/activate
+python repo_vis/repovis.py --repo_path <path to repository source>
 ```
+
+## General Considerations
+
+I've worked to dynamically reduce the object resolution as a function of the number of classes, functions
+and methods, but large repositories can take considerable time to load and render. Minutes on my Macbook Pro M3 max, so prepare to wait a bit. Progress bars should help keep an eye on rendering.
