@@ -55,14 +55,6 @@ from PyQt5.QtWidgets import (
 from pyvistaqt import QtInteractor
 from rich import print as rprint
 from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
 from utility import (
     can_import,
     collect_elements,
@@ -90,6 +82,8 @@ METHOD_COLOR: str = "blue"
 
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
+
+BUTTON_WIDTH: int = 120
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
@@ -234,8 +228,10 @@ def create_3d_visualization(
     rprint(
         f"[bold green]Parsed {num_classes} classes and {num_functions} functions with a total of {total_methods} methods...[/bold green]"
     )
-    viz_instance.status = f"Rendering {num_classes} classes..."
-    QApplication.processEvents()
+
+    # viz_instance.status = f"Rendering {num_classes} classes..."
+    # QApplication.processEvents()
+
     class_positions: List[np.ndarray] = fibonacci_sphere(
         num_classes, radius=class_radius, center=package_center
     )
@@ -277,16 +273,31 @@ def create_3d_visualization(
             "docstring": element.get("docstring", ""),
             "mesh": mesh,  # Store the mesh object in the value
         }
-        if num_classes <= 2000:
+        # Calculate distance between package center and class position
+        distance = np.linalg.norm(pos - package_center)
+
+        if num_classes < 500:
+            # Draw cylinder for distance < 500
+            cylinder = pv.Cylinder(
+                center=(package_center + pos) / 2,  # Midpoint between center and class
+                direction=pos - package_center,  # Direction vector
+                radius=0.05,  # Cylinder radius
+                height=distance,  # Cylinder height = distance
+                resolution=16,  # Number of sides
+            )
+            plotter.add_mesh(cylinder, color="gray", smooth_shading=True)
+        elif num_classes <= 2000:
+            # Draw line for distance between 501 and 2000
             line: pv.PolyData = pv.Line(package_center, pos)
             plotter.add_mesh(line, color="gray", line_width=1)
+        # No connection if distance > 2000
         update_interval: int = max(1, int(num_classes * 0.10))
         if class_index % update_interval == 0 or class_index == num_classes:
             percent_complete = int((class_index / num_classes) * 100)
             progress_bar = "█" * (percent_complete // 10) + "░" * (
                 (100 - percent_complete) // 10
             )
-            viz_instance.status = f"Rendering Classes progress | {progress_bar} {percent_complete}% ({class_index}/{num_classes})"
+            viz_instance.status = f"Rendering Classes | {progress_bar} {percent_complete}% ({class_index}/{num_classes})"
             QApplication.processEvents()
 
     if class_meshes.n_blocks > 0:
@@ -329,7 +340,7 @@ def create_3d_visualization(
                     radius=FUNCTION_OBJECT_RADIUS,
                     height=FUNCTION_OBJECT_RADIUS,
                     center=pos,
-                    direction=(0, 0, 1),
+                    direction=(0, 1, 0),
                     resolution=16,
                 )
             function_meshes.append(mesh)
@@ -351,7 +362,7 @@ def create_3d_visualization(
                 progress_bar = "█" * (percent_complete // 10) + "░" * (
                     (100 - percent_complete) // 10
                 )
-                viz_instance.status = f"Rendering Functions progress | {progress_bar} {percent_complete}% ({i+1}/{num_functions})"
+                viz_instance.status = f"Rendering Functions | {progress_bar} {percent_complete}% ({i+1}/{num_functions})"
                 QApplication.processEvents()
 
         if function_meshes.n_blocks > 0:
@@ -368,17 +379,12 @@ def create_3d_visualization(
 
     # Render methods
     if viz_instance.render_methods and total_methods > 0:
-        viz_instance.status = "Rendering methods..."
-        QApplication.processEvents()
-        # rprint(
-        #    f"[bold green]Starting to render {total_methods} methods...[/bold green]"
-        # )
         logger.debug("Starting to render %s methods...", total_methods)
 
         method_count: int = 0
         percent_complete = 0
         progress_bar = "░" * 10
-        viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% (0/{total_methods})"
+        viz_instance.status = f"Rendering Methods | {progress_bar} {percent_complete}% (0/{total_methods})"
         QApplication.processEvents()
 
         for class_pos, class_elem in zip(
@@ -421,7 +427,7 @@ def create_3d_visualization(
                     progress_bar = "█" * (percent_complete // 10) + "░" * (
                         (100 - percent_complete) // 10
                     )
-                    viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
+                    viz_instance.status = f"Rendering Methods | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
                     QApplication.processEvents()
 
         if method_meshes.n_blocks > 0:
@@ -785,10 +791,11 @@ class MainWindow(QMainWindow):
         # Add the checkbox layout to the control panel
         control_panel.addLayout(checkbox_layout)
 
+        # Add stretch to push the visualize button to the bottom
+        control_panel.addStretch()
+
         self.visualize_button: QPushButton = QPushButton("Visualize Repository")
         control_panel.addWidget(self.visualize_button)
-
-        control_panel.addStretch()
 
         vis_panel: QVBoxLayout = QVBoxLayout()
         vis_panel.setSpacing(10)
@@ -798,16 +805,23 @@ class MainWindow(QMainWindow):
 
         self.button_spin = QPushButton("Spin Repository")
         self.button_spin.clicked.connect(self.spin_camera)
-        self.button_spin.setFixedWidth(150)
+        self.button_spin.setFixedWidth(BUTTON_WIDTH)
         self.button_spin.setStyleSheet("background-color: '#2196F3'; color: white;")
         button_row.addWidget(self.button_spin)
 
         self.save_button: QPushButton = QPushButton("Save View")
-        self.save_button.setFixedWidth(150)
+        self.save_button.setFixedWidth(BUTTON_WIDTH)
         button_row.addWidget(self.save_button)
 
+        self.reset_view_button: QPushButton = QPushButton("Reset View")
+        self.reset_view_button.setFixedWidth(BUTTON_WIDTH)
+        self.reset_view_button.setStyleSheet(
+            "background-color: '#FFEB3B'; color: black;"
+        )
+        button_row.addWidget(self.reset_view_button)
+
         self.reset_settings_button: QPushButton = QPushButton("Reset Settings")
-        self.reset_settings_button.setFixedWidth(100)
+        self.reset_settings_button.setFixedWidth(BUTTON_WIDTH)
         self.reset_settings_button.setObjectName("reset-view")
         self.reset_settings_button.setStyleSheet(
             "background-color: '#FF0000'; color: white;"
@@ -815,6 +829,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.reset_settings_button)
 
         self.save_button.clicked.connect(self.save_current_view)
+        self.reset_view_button.clicked.connect(self.reset_camera)
 
         self.status_display: QLabel = QLabel("Ready")
         self.status_display.setTextInteractionFlags(Qt.TextBrowserInteraction)
@@ -966,7 +981,8 @@ class MainWindow(QMainWindow):
 
     def highlight_actor(self, mesh):
         """
-        Highlight the given mesh by creating a temporary actor.
+        Highlight the given mesh by creating a temporary actor, adjust camera to focus on it,
+        and zoom in for a better view using PyVista's built-in camera zoom.
 
         :param mesh: The mesh to highlight.
         :type mesh: pv.PolyData
@@ -979,7 +995,23 @@ class MainWindow(QMainWindow):
             mesh, color="pink", show_edges=True, edge_color="white", line_width=3
         )
         self._current_picked_actor = highlight_actor
+        
+        # Get the mesh center
+        mesh_center = np.array(mesh.center)
+        
+        # Set camera focal point to mesh center
+        self.plotter.camera.focal_point = mesh_center
+        
+        # Apply zoom using PyVista's built-in camera zoom
+        # Zoom factor > 1 zooms in, < 1 zooms out
+        zoom_factor = 2.0  # Adjust this value to control zoom level
+        self.plotter.camera.Zoom(zoom_factor)
+        
+        # Render the scene with the new camera settings
         self.plotter.render()
+        
+        # Log camera adjustment
+        logger.debug(f"Camera adjusted to focus on object at {mesh_center} with zoom factor {zoom_factor}")
 
     def log_plotter_actors(self):
         """
