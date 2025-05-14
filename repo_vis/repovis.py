@@ -18,7 +18,7 @@ Usage:
 Run: python repovis.py
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-13
+Last modified: 2025-05-14 01:59:40
 """
 
 import argparse
@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -248,56 +249,46 @@ def create_3d_visualization(
     # Render classes
     rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
     logger.debug("Starting to render %s classes...", num_classes)
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(bar_width=40, complete_style="green", finished_style="bold green"),
-        TaskProgressColumn(),
-        TimeRemainingColumn(),
-        expand=True,
-    ) as progress:
-        task = progress.add_task("[bold red]Rendering classes...", total=num_classes)
-        class_index = 0
+    class_index = 0
 
-        for element in elements:
-            if element["type"] != "class":
-                continue
-            pos: np.ndarray = class_positions[class_index]
-            class_index += 1
-            method_count: int = len(element.get("methods", []))
-            if num_classes > 500:
-                mesh: pv.PolyData = pv.Cube(
-                    center=pos,
-                    x_length=viz_instance.class_object_radius * 2,
-                    y_length=viz_instance.class_object_radius * 2,
-                    z_length=viz_instance.class_object_radius * 2,
-                )
-            else:
-                mesh: pv.PolyData = pv.Icosahedron(
-                    radius=viz_instance.class_object_radius,
-                    center=pos,
-                )
-            class_meshes.append(mesh)
-            mesh_id = f"class_{mesh_id_counter}"
-            mesh_id_counter += 1
-            actor_to_element[mesh_id] = {
-                "type": "class",
-                "name": element["name"],
-                "docstring": element.get("docstring", ""),
-                "mesh": mesh,  # Store the mesh object in the value
-            }
-            if num_classes <= 1000:
-                line: pv.PolyData = pv.Line(package_center, pos)
-                plotter.add_mesh(line, color="gray", line_width=1)
-            update_interval: int = max(1, int(num_classes * 0.10))
-            if class_index % update_interval == 0 or class_index == num_classes:
-                progress.update(task, completed=class_index)
-                percent_complete = int((class_index / num_classes) * 100)
-                progress_bar = "█" * (percent_complete // 10) + "░" * (
-                    (100 - percent_complete) // 10
-                )
-                viz_instance.status = f"Rendering Classes progress | {progress_bar} {percent_complete}% ({class_index}/{num_classes})"
-                QApplication.processEvents()
+    for element in elements:
+        if element["type"] != "class":
+            continue
+        pos: np.ndarray = class_positions[class_index]
+        class_index += 1
+        method_count: int = len(element.get("methods", []))
+        if num_classes > 2000:
+            mesh: pv.PolyData = pv.Cube(
+                center=pos,
+                x_length=viz_instance.class_object_radius * 2,
+                y_length=viz_instance.class_object_radius * 2,
+                z_length=viz_instance.class_object_radius * 2,
+            )
+        else:
+            mesh: pv.PolyData = pv.Icosahedron(
+                radius=viz_instance.class_object_radius,
+                center=pos,
+            )
+        class_meshes.append(mesh)
+        mesh_id = f"class_{mesh_id_counter}"
+        mesh_id_counter += 1
+        actor_to_element[mesh_id] = {
+            "type": "class",
+            "name": element["name"],
+            "docstring": element.get("docstring", ""),
+            "mesh": mesh,  # Store the mesh object in the value
+        }
+        if num_classes <= 2000:
+            line: pv.PolyData = pv.Line(package_center, pos)
+            plotter.add_mesh(line, color="gray", line_width=1)
+        update_interval: int = max(1, int(num_classes * 0.10))
+        if class_index % update_interval == 0 or class_index == num_classes:
+            percent_complete = int((class_index / num_classes) * 100)
+            progress_bar = "█" * (percent_complete // 10) + "░" * (
+                (100 - percent_complete) // 10
+            )
+            viz_instance.status = f"Rendering Classes progress | {progress_bar} {percent_complete}% ({class_index}/{num_classes})"
+            QApplication.processEvents()
 
     if class_meshes.n_blocks > 0:
         plotter.add_mesh(
@@ -313,13 +304,13 @@ def create_3d_visualization(
     rprint("[bold green]Finished rendering classes![/bold green]")
     logger.debug("Finished rendering classes!")
 
-    # Render functions
+    # Render functions !!!
     if num_functions > 0:
         viz_instance.status = f"Rendering {num_functions} functions..."
         QApplication.processEvents()
         function_positions: List[np.ndarray] = fibonacci_sphere(
             num_functions,
-            radius=package_radius * member_radius_scale,
+            radius=package_radius * 1.5,
             center=package_center,
         )
 
@@ -328,58 +319,43 @@ def create_3d_visualization(
         )
         logger.debug("Starting to render %s functions...", num_functions)
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(
-                bar_width=40, complete_style="green", finished_style="bold green"
-            ),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            expand=True,
-        ) as progress:
-            func_task = progress.add_task(
-                "[bold green]Rendering functions...", total=num_functions
-            )
+        for i, element in enumerate(
+            [e for e in elements if e["type"] == "function"]
+        ):
+            pos: np.ndarray = function_positions[i]
+            if num_functions > 1000:
+                mesh: pv.PolyData = pv.Cube(
+                    center=pos, x_length=0.15, y_length=0.15, z_length=0.15
+                )
+            else:
+                mesh: pv.PolyData = pv.Cylinder(
+                    radius=FUNCTION_OBJECT_RADIUS,
+                    height=FUNCTION_OBJECT_RADIUS,
+                    center=pos,
+                    direction=(0, 0, 1),
+                    resolution=16,
+                )
+            function_meshes.append(mesh)
+            mesh_id = f"function_{mesh_id_counter}"
+            mesh_id_counter += 1
+            actor_to_element[mesh_id] = {
+                "type": "function",
+                "name": element["name"],
+                "docstring": element.get("docstring", ""),
+                "mesh": mesh,  # Store the mesh object in the value
+            }
+            if num_functions <= 1000:
+                line: pv.PolyData = pv.Line(package_center, pos)
+                plotter.add_mesh(line, color="gray", line_width=2)
 
-            for i, element in enumerate(
-                [e for e in elements if e["type"] == "function"]
-            ):
-                pos: np.ndarray = function_positions[i]
-                if num_functions > 1000:
-                    mesh: pv.PolyData = pv.Cube(
-                        center=pos, x_length=0.15, y_length=0.15, z_length=0.15
-                    )
-                else:
-                    mesh: pv.PolyData = pv.Cylinder(
-                        radius=FUNCTION_OBJECT_RADIUS,
-                        height=FUNCTION_OBJECT_RADIUS,
-                        center=pos,
-                        direction=(0, 0, 1),
-                        resolution=16,
-                    )
-                function_meshes.append(mesh)
-                mesh_id = f"function_{mesh_id_counter}"
-                mesh_id_counter += 1
-                actor_to_element[mesh_id] = {
-                    "type": "function",
-                    "name": element["name"],
-                    "docstring": element.get("docstring", ""),
-                    "mesh": mesh,  # Store the mesh object in the value
-                }
-                if num_functions <= 1000:
-                    line: pv.PolyData = pv.Line(package_center, pos)
-                    plotter.add_mesh(line, color="gray", line_width=1)
-
-                update_interval: int = max(1, int(num_functions * 0.10))
-                if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
-                    progress.update(func_task, completed=i + 1)
-                    percent_complete = int(((i + 1) / num_functions) * 100)
-                    progress_bar = "█" * (percent_complete // 10) + "░" * (
-                        (100 - percent_complete) // 10
-                    )
-                    viz_instance.status = f"Rendering Functions progress | {progress_bar} {percent_complete}% ({i+1}/{num_functions})"
-                    QApplication.processEvents()
+            update_interval: int = max(1, int(num_functions * 0.10))
+            if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
+                percent_complete = int(((i + 1) / num_functions) * 100)
+                progress_bar = "█" * (percent_complete // 10) + "░" * (
+                    (100 - percent_complete) // 10
+                )
+                viz_instance.status = f"Rendering Functions progress | {progress_bar} {percent_complete}% ({i+1}/{num_functions})"
+                QApplication.processEvents()
 
         if function_meshes.n_blocks > 0:
             plotter.add_mesh(
@@ -402,72 +378,56 @@ def create_3d_visualization(
         )
         logger.debug("Starting to render %s methods...", total_methods)
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(
-                bar_width=40, complete_style="green", finished_style="bold green"
-            ),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            expand=True,
-        ) as progress:
-            method_task = progress.add_task(
-                "[bold blue]Rendering methods...", total=total_methods
+        method_count: int = 0
+        percent_complete = 0
+        progress_bar = "░" * 10
+        viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% (0/{total_methods})"
+        QApplication.processEvents()
+
+        for class_pos, class_elem in zip(
+            class_positions, [e for e in elements if e["type"] == "class"]
+        ):
+            members: List[Dict[str, Union[str, int]]] = class_elem.get(
+                "methods", []
             )
-
-            method_count: int = 0
-            progress.update(method_task, completed=0)
-            percent_complete = 0
-            progress_bar = "░" * 10
-            viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% (0/{total_methods})"
-            QApplication.processEvents()
-
-            for class_pos, class_elem in zip(
-                class_positions, [e for e in elements if e["type"] == "class"]
-            ):
-                members: List[Dict[str, Union[str, int]]] = class_elem.get(
-                    "methods", []
+            if members:
+                method_positions: List[np.ndarray] = fibonacci_sphere(
+                    len(members),
+                    radius=member_radius_scale,
+                    center=class_pos,
                 )
-                if members:
-                    method_positions: List[np.ndarray] = fibonacci_sphere(
-                        len(members),
-                        radius=member_radius_scale,
-                        center=class_pos,
+
+                for j, member in enumerate(members):
+                    method_mesh: pv.PolyData = pv.Icosahedron(
+                        radius=viz_instance.method_object_radius,
+                        center=method_positions[j],
                     )
+                    method_meshes.append(method_mesh)
+                    mesh_id = f"method_{mesh_id_counter}"
+                    mesh_id_counter += 1
+                    actor_to_element[mesh_id] = {
+                        "type": "method",
+                        "name": f"{class_elem['name']}.{member['name']}",
+                        "docstring": member.get("docstring", ""),
+                        "mesh": method_mesh,  # Store the mesh object in the value
+                    }
+                    if total_methods <= 2000:
+                        line: pv.PolyData = pv.Line(class_pos, method_positions[j])
+                        plotter.add_mesh(line, color="blue", line_width=1)
+                    method_count += 1
 
-                    for j, member in enumerate(members):
-                        method_mesh: pv.PolyData = pv.Icosahedron(
-                            radius=viz_instance.method_object_radius,
-                            center=method_positions[j],
-                        )
-                        method_meshes.append(method_mesh)
-                        mesh_id = f"method_{mesh_id_counter}"
-                        mesh_id_counter += 1
-                        actor_to_element[mesh_id] = {
-                            "type": "method",
-                            "name": f"{class_elem['name']}.{member['name']}",
-                            "docstring": member.get("docstring", ""),
-                            "mesh": method_mesh,  # Store the mesh object in the value
-                        }
-                        if total_methods <= 2000:
-                            line: pv.PolyData = pv.Line(class_pos, method_positions[j])
-                            plotter.add_mesh(line, color="blue", line_width=1)
-                        method_count += 1
-
-                        update_interval: int = max(5, int(total_methods * 0.05))
-                        if (
-                            method_count % update_interval == 0
-                            or method_count == total_methods
-                            or method_count <= 10
-                        ):
-                            progress.update(method_task, completed=method_count)
-                            percent_complete = int((method_count / total_methods) * 100)
-                            progress_bar = "█" * (percent_complete // 10) + "░" * (
-                                (100 - percent_complete) // 10
-                            )
-                            viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
-                            QApplication.processEvents()
+                update_interval: int = max(5, int(total_methods * 0.05))
+                if (
+                    method_count % update_interval == 0
+                    or method_count == total_methods
+                    or method_count <= 10
+                ):
+                    percent_complete = int((method_count / total_methods) * 100)
+                    progress_bar = "█" * (percent_complete // 10) + "░" * (
+                        (100 - percent_complete) // 10
+                    )
+                    viz_instance.status = f"Rendering Methods progress | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
+                    QApplication.processEvents()
 
         if method_meshes.n_blocks > 0:
             plotter.add_mesh(
@@ -808,6 +768,14 @@ class MainWindow(QMainWindow):
             self.function_selector.addItem(item)
         control_panel.addWidget(self.function_selector)
 
+        # Add a label for render options
+        render_options_label = QLabel(
+            "<h2>Render Options</h2>",
+            font=QFont("Arial", 14, QFont.Bold),
+            styleSheet="background: transparent; border: none;",
+        )
+        control_panel.addWidget(render_options_label)
+
         # Create a horizontal layout for the checkboxes
         checkbox_layout = QHBoxLayout()
 
@@ -892,7 +860,7 @@ class MainWindow(QMainWindow):
             callback=self.on_pick,
             show=False,
             show_actors=False,
-            show_message=True,
+            show_message=False,
             font_size=14,
             left_clicking=False,
             use_actor=True,
@@ -1018,42 +986,30 @@ class MainWindow(QMainWindow):
         self._current_picked_actor = highlight_actor
         self.plotter.render()
 
-    def log_plotter_actors(self) -> None:
+    def log_plotter_actors(self):
         """
-        Log information about the plotter's actors for debugging purposes.
+        Log detailed information about plotter actors for debugging.
         """
         logger.debug("Logging plotter actors")
         logger.debug("Number of actors: %d", len(self.plotter.actors))
 
-        # Log all actors
         for name, actor in self.plotter.actors.items():
+            logger.debug("Actor: %s", name)
             if hasattr(actor, "GetProperty"):
                 color = actor.GetProperty().GetColor()
-                logger.debug("Actor %s: color=%s", name, color)
-
-                # Log mapper and input information if available
-                if hasattr(actor, "GetMapper") and actor.GetMapper():
-                    mapper = actor.GetMapper()
-                    if hasattr(mapper, "GetInput") and mapper.GetInput():
-                        input_obj = mapper.GetInput()
-                        input_type = type(input_obj).__name__
-                        logger.debug("  Mapper input type: %s", input_type)
-
-                        # If it's a MultiBlock, log more details
-                        if isinstance(input_obj, pv.MultiBlock):
-                            logger.debug(
-                                "  MultiBlock with %d blocks", input_obj.n_blocks
-                            )
-
-                            # Log a few blocks as samples
-                            for i in range(min(3, input_obj.n_blocks)):
-                                block = input_obj[i]
-                                if hasattr(block, "center"):
-                                    logger.debug(
-                                        "    Block %d center: %s", i, block.center
-                                    )
-            else:
-                logger.debug("Actor %s: No property information available", name)
+                logger.debug("  Color: %s", color)
+                if color == (1.0, 0.0, 0.0):  # Red actor
+                    logger.debug("  ** RED ACTOR DETECTED **")
+            if hasattr(actor, "GetMapper") and actor.GetMapper():
+                mapper = actor.GetMapper()
+                if hasattr(mapper, "GetInput") and mapper.GetInput():
+                    input_obj = mapper.GetInput()
+                    input_type = type(input_obj).__name__
+                    logger.debug("  Input type: %s", input_type)
+                    if hasattr(input_obj, "bounds"):
+                        logger.debug("  Bounds: %s", input_obj.bounds)
+                    if isinstance(input_obj, pv.MultiBlock):
+                        logger.debug("  MultiBlock with %d blocks", input_obj.n_blocks)
 
     def on_pick(self, actor):
         """
@@ -1188,7 +1144,7 @@ class MainWindow(QMainWindow):
             element_name = element["name"]
             docstring = element["docstring"]
             title = f"{element_type.capitalize()}: {element_name}"
-            self.update_status_display(f"Picked {element_type}: {element_name}")
+            # self.update_status_display(f"Picked {element_type}: {element_name}")
             popup = DocstringPopup(
                 title,
                 format_docstring_to_markdown(docstring),
@@ -1213,9 +1169,6 @@ class MainWindow(QMainWindow):
         # Log the current actors in the plotter
         logger.debug("Current actors in plotter: %s", list(self.plotter.actors.keys()))
 
-        # Clear picking highlights
-        # self.plotter.reset_picker()
-
         # Remove highlight actor
         if self._current_picked_actor:
             logger.debug("Removing highlight actor")
@@ -1234,6 +1187,12 @@ class MainWindow(QMainWindow):
                 actor.prop.show_edges = False
                 actor.prop.line_width = 1
 
+        # Remove bounds actors and hide bounds
+        for actor_name in list(self.plotter.actors.keys()):
+            if "bounds" in actor_name.lower() or "outline" in actor_name.lower():
+                logger.debug("Removing bounds/outline actor: %s", actor_name)
+                self.plotter.remove_actor(actor_name, reset_camera=False)
+
         logger.debug("Reset actor appearances and cleared picking highlights")
 
     def reset_picking_state(self):
@@ -1244,7 +1203,7 @@ class MainWindow(QMainWindow):
         self.reset_actor_appearances()
         self.class_selector.clearSelection()
         self.function_selector.clearSelection()
-        # self.plotter.clear_picker()
+        # self.plotter.picker = None
         self.plotter.render()
 
     def update_repo_path(self) -> None:
