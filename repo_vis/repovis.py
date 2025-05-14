@@ -40,7 +40,6 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -247,7 +246,7 @@ def create_3d_visualization(
     function_meshes = pv.MultiBlock()
 
     # Render classes
-    rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
+    # rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
     logger.debug("Starting to render %s classes...", num_classes)
     class_index = 0
 
@@ -301,7 +300,7 @@ def create_3d_visualization(
 
     plotter.view_xy()
     plotter.camera.focal_point = np.array(ORIGIN)
-    rprint("[bold green]Finished rendering classes![/bold green]")
+    # rprint("[bold green]Finished rendering classes![/bold green]")
     logger.debug("Finished rendering classes!")
 
     # Render functions !!!
@@ -314,14 +313,12 @@ def create_3d_visualization(
             center=package_center,
         )
 
-        rprint(
-            f"[bold green]Starting to render {num_functions} functions...[/bold green]"
-        )
+        # rprint(
+        #    f"[bold green]Starting to render {num_functions} functions...[/bold green]"
+        # )
         logger.debug("Starting to render %s functions...", num_functions)
 
-        for i, element in enumerate(
-            [e for e in elements if e["type"] == "function"]
-        ):
+        for i, element in enumerate([e for e in elements if e["type"] == "function"]):
             pos: np.ndarray = function_positions[i]
             if num_functions > 1000:
                 mesh: pv.PolyData = pv.Cube(
@@ -366,16 +363,16 @@ def create_3d_visualization(
                 name="functions",
             )
 
-        rprint("[bold green]Finished rendering functions![/bold green]")
+        # rprint("[bold green]Finished rendering functions![/bold green]")
         logger.debug("Finished rendering functions!")
 
     # Render methods
     if viz_instance.render_methods and total_methods > 0:
         viz_instance.status = "Rendering methods..."
         QApplication.processEvents()
-        rprint(
-            f"[bold green]Starting to render {total_methods} methods...[/bold green]"
-        )
+        # rprint(
+        #    f"[bold green]Starting to render {total_methods} methods...[/bold green]"
+        # )
         logger.debug("Starting to render %s methods...", total_methods)
 
         method_count: int = 0
@@ -387,9 +384,7 @@ def create_3d_visualization(
         for class_pos, class_elem in zip(
             class_positions, [e for e in elements if e["type"] == "class"]
         ):
-            members: List[Dict[str, Union[str, int]]] = class_elem.get(
-                "methods", []
-            )
+            members: List[Dict[str, Union[str, int]]] = class_elem.get("methods", [])
             if members:
                 method_positions: List[np.ndarray] = fibonacci_sphere(
                     len(members),
@@ -438,7 +433,7 @@ def create_3d_visualization(
                 name="methods",
             )
 
-        rprint("[bold green]Finished rendering methods![/bold green]")
+        # rprint("[bold green]Finished rendering methods![/bold green]")
         logger.debug("Finished rendering methods!")
 
     plotter.view_xy()
@@ -1400,14 +1395,14 @@ class MainWindow(QMainWindow):
         plotter: pv.Plotter = self.visualizer.plotter
         save_path = Path(save_path).with_suffix(f".{save_format}")
 
-        rprint("[bold green]Starting save operation...[/bold green]")
+        # rprint("[bold green]Starting save operation...[/bold green]")
         logger.debug("Starting save operation to %s", save_path)
 
         try:
             if save_format == "html":
                 plotter.export_html(save_path)
             elif save_format in ["png", "jpg"]:
-                rprint("[bold green]Taking screenshot of current view...[/bold green]")
+                # rprint("[bold green]Taking screenshot of current view...[/bold green]")
                 logger.debug("Taking screenshot of current view...")
                 original_text_actors: List[Tuple[str, pv.Actor]] = []
                 for actor_key in list(plotter.actors.keys()):
@@ -1428,7 +1423,7 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"Unsupported save format: {save_format}")
 
             self.visualizer.status = f"Visualization saved to: {save_path}"
-            rprint(f"[bold green]{self.visualizer.status}[/bold green]")
+            # rprint(f"[bold green]{self.visualizer.status}[/bold green]")
             logger.debug("Visualization saved to %s", save_path)
             self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
