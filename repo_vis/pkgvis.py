@@ -168,7 +168,7 @@ def create_3d_visualization(
     member_radius_scale: float = 1.0,
     old_title: str = "",
     plotter: Optional[pv.Plotter] = None,
-) -> Tuple[pv.Plotter, str, Dict[str, Dict[str, Union[str, pv.PolyData]]]]:
+) -> Tuple[pv.Plotter, str, Dict[str, Dict[str, Union[str, object]]]]:
     """
     Create a 3D visualization of the package structure using PyVista.
 
@@ -194,7 +194,7 @@ def create_3d_visualization(
     viz_instance.status = "Setting up visualization..."
     QApplication.processEvents()
 
-    actor_to_element: Dict[str, Dict[str, Union[str, pv.PolyData]]] = {}
+    actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
     mesh_id_counter = 0  # Counter to generate unique IDs for meshes
     plotter.clear_actors()
     plotter.remove_all_lights()
@@ -573,8 +573,24 @@ class PackageVisualizer(param.Parameterized):
         super().__init__(**params)
         self.plotter: Optional[pv.Plotter] = plotter or pv.Plotter()
         self.elements: List[Dict[str, Union[str, int, List[str]]]] = []
-        self.actor_to_element: Dict[str, Dict[str, Union[str, pv.PolyData]]] = {}
+        self.actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
         self.update_classes()
+        
+    def __del__(self) -> None:
+        """
+        Clean up resources when the object is being destroyed.
+        """
+        # Clear references to PyVista objects to prevent issues during garbage collection
+        if hasattr(self, 'actor_to_element'):
+            for mesh_id in list(self.actor_to_element.keys()):
+                if 'mesh' in self.actor_to_element[mesh_id]:
+                    self.actor_to_element[mesh_id]['mesh'] = None
+            self.actor_to_element.clear()
+        
+        # Clear the plotter
+        if hasattr(self, 'plotter') and self.plotter is not None:
+            self.plotter.clear_actors()
+            self.plotter = None
 
     def set_plotter(self, plotter: pv.Plotter) -> None:
         self.plotter = plotter
@@ -1562,10 +1578,10 @@ class MainWindow(QMainWindow):
         Update the status display label with the current status.
         """
         match status:
-            case status if status.startswith("Visualization saved to"):
+            case status if status.startswith("Visualization "):
                 save_path: str = status.split("Visualization saved to ")[-1].strip()
                 self.status_display.setText(
-                    f"<span style='font-size:12px'>{save_path}</span> "
+                    f"<span style='color:#006600'>{save_path}</span> "
                 )
 
             case status if status.startswith("Error"):
