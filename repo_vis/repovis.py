@@ -3,18 +3,18 @@
 """
 Module: repovis
 
-A PyQt5 application for 3D visualization of a Python repository's structure.
+A PyQt5 application for 3D visualization of a Python package's structure.
 Parses classes, methods, and functions, rendering them as 3D objects using PyVista.
 
 Key Features:
-- Extracts repository structure using AST.
+- Extracts package structure using AST.
 - Visualizes classes (green icosahedrons or cubes), methods (blue icosahedrons),
   and functions (red cylinders or cubes) with connections to the package center.
 - Interactive UI for customizing and filtering visualizations by class, method, and function.
 - Supports saving visualizations in multiple formats (HTML, PNG, JPEG).
 - Enables picking of objects to display their docstrings in a popup window.
 - Camera controls including reset view and animated spinning.
-- Adaptive rendering based on repository size (different shapes and connection types).
+- Adaptive rendering based on package size (different shapes and connection types).
 - Highlighting and zooming for selected elements.
 
 Usage:
@@ -91,7 +91,7 @@ METHOD_COLOR: str = "blue"
 
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
-
+CYLINDER_RADIUS: float = 0.05
 BUTTON_WIDTH: int = 120
 
 ZOOM_FACTOR: float = 5.0
@@ -160,7 +160,7 @@ class DocstringPopup(QDialog):
 
 
 def create_3d_visualization(
-    viz_instance: "RepositoryVisualizer",
+    viz_instance: "PackageVisualizer",
     elements: List[Dict[str, Union[str, int, List[str]]]],
     save_path: str,
     save_format: str = "html",
@@ -170,10 +170,10 @@ def create_3d_visualization(
     plotter: Optional[pv.Plotter] = None,
 ) -> Tuple[pv.Plotter, str, Dict[str, Dict[str, Union[str, pv.PolyData]]]]:
     """
-    Create a 3D visualization of the repository structure using PyVista.
+    Create a 3D visualization of the package structure using PyVista.
 
-    :param viz_instance: Instance of RepositoryVisualizer to update status.
-    :type viz_instance: RepositoryVisualizer
+    :param viz_instance: Instance of PackageVisualizer to update status.
+    :type viz_instance: PackageVisualizer
     :param elements: List of elements (classes, functions) to visualize.
     :type elements: List[Dict[str, Union[str, int, List[str]]]]
     :param save_path: Path to save the visualization.
@@ -236,12 +236,6 @@ def create_3d_visualization(
         len(class_elem.get("methods", []))
         for class_elem in [e for e in elements if e["type"] == "class"]
     )
-    rprint(
-        f"[bold green]Parsed {num_classes} classes and {num_functions} functions with a total of {total_methods} methods...[/bold green]"
-    )
-
-    # viz_instance.status = f"Rendering {num_classes} classes..."
-    # QApplication.processEvents()
 
     class_positions: List[np.ndarray] = fibonacci_sphere(
         num_classes, radius=class_radius, center=package_center
@@ -289,12 +283,12 @@ def create_3d_visualization(
         # Calculate distance between package center and class position
         distance = np.linalg.norm(pos - package_center)
 
-        if num_classes < 500:
+        if num_classes < 1000:
             # Draw cylinder for classes < 500
             cylinder = pv.Cylinder(
                 center=(package_center + pos) / 2,  # Midpoint between center and class
                 direction=pos - package_center,  # Direction vector
-                radius=0.025,  # Cylinder radius
+                radius=CYLINDER_RADIUS,  # Cylinder radius
                 height=distance,  # Cylinder height = distance
                 resolution=16,  # Number of sides
             )
@@ -359,7 +353,7 @@ def create_3d_visualization(
                     radius=FUNCTION_OBJECT_RADIUS,
                     height=FUNCTION_OBJECT_RADIUS,
                     center=pos,
-                    direction=(0, 1, 0),
+                    direction=(0, 0, 1),
                     resolution=16,
                 )
 
@@ -510,7 +504,7 @@ def create_3d_visualization(
     for i in range(method_meshes.n_blocks):
         total_triangles += method_meshes[i].n_faces_strict
 
-    logger.info("Total number of triangles in the visualization: %d", total_triangles)
+    logger.debug("Total number of triangles in the visualization: %d", total_triangles)
 
     # Store the total triangles count in the visualizer instance
     viz_instance.num_faces = total_triangles
@@ -522,8 +516,8 @@ def create_3d_visualization(
     return plotter, title_text, actor_to_element
 
 
-class RepositoryVisualizer(param.Parameterized):
-    repo_path: str = param.String(default=DEFAULT_REP, doc="Repository path")
+class PackageVisualizer(param.Parameterized):
+    repo_path: str = param.String(default=DEFAULT_REP, doc="Package path")
     save_path: str = param.String(default=DEFAULT_PACKAGE_NAME, doc="Save path")
     old_title: str = param.String(
         default=DEFAULT_TITLE, doc="Previous title for the plotter"
@@ -563,22 +557,18 @@ class RepositoryVisualizer(param.Parameterized):
     include_functions: bool = param.Boolean(default=False, doc="Include functions")
     render_methods: bool = param.Boolean(default=True, doc="Render methods")
     status: str = param.String(default="Ready", doc="Status")
-    num_classes: int = param.Integer(
-        default=0, doc="Number of classes in the repository"
-    )
+    num_classes: int = param.Integer(default=0, doc="Number of classes in the package")
     num_functions: int = param.Integer(
-        default=0, doc="Number of functions in the repository"
+        default=0, doc="Number of functions in the package"
     )
-    num_methods: int = param.Integer(
-        default=0, doc="Number of methods in the repository"
-    )
+    num_methods: int = param.Integer(default=0, doc="Number of methods in the package")
     num_faces: int = param.Integer(
         default=0, doc="Number of faces (triangles) in the visualization"
     )
 
     def __init__(self, plotter: Optional[pv.Plotter] = None, **params: dict) -> None:
         """
-        Initialize the RepositoryVisualizer.
+        Initialize the PackageVisualizer.
         """
         super().__init__(**params)
         self.plotter: Optional[pv.Plotter] = plotter or pv.Plotter()
@@ -592,11 +582,11 @@ class RepositoryVisualizer(param.Parameterized):
     @param.depends("repo_path", watch=True)
     def update_classes(self) -> bool:
         """
-        Update the list of available classes, functions, and methods based on the repository path.
+        Update the list of available classes, functions, and methods based on the package path.
         """
         self.window_title = DEFAULT_TITLE
         if os.path.exists(self.repo_path):
-            self.status = "Analyzing repository..."
+            self.status = "Analyzing package..."
             self.elements = collect_elements(self.repo_path)
 
             # Compute the number of classes, functions, and methods
@@ -632,18 +622,21 @@ class RepositoryVisualizer(param.Parameterized):
             self.param.selected_functions.objects = function_names
 
             self.save_path = os.path.basename(self.repo_path)
-            self.status = f"Repository loaded: {self.repo_path}"
+            self.status = f"Package loaded: {self.repo_path}"
 
             # Update the window title
-            self.window_title = f"Repo: {self.repo_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods} | Faces: {self.num_faces}"
+            self.window_title = f"Pkg: {self.repo_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods} | Faces: {self.num_faces}"
 
             if self.plotter:
                 self.plotter.clear_actors()
                 return True
         else:
             self.reset_elements()
-            self.status = "ERROR: Repository path does not exist!"
+            self.status = "ERROR Package path does not exist!"
             self.window_title = DEFAULT_TITLE
+            # Clear the plotter to remove old meshes when an invalid path is entered
+            if self.plotter:
+                self.plotter.clear_actors()
             return False
 
     def reset_elements(self) -> None:
@@ -697,7 +690,7 @@ class RepositoryVisualizer(param.Parameterized):
         Create and display the 3D visualization based on selected parameters.
         """
         if not os.path.exists(self.repo_path):
-            self.status = "Repository path does not exist."
+            self.status = "Package path does not exist."
             return
         if not self.elements:
             self.status = "No elements found."
@@ -785,7 +778,7 @@ class RepositoryVisualizer(param.Parameterized):
 class MainWindow(QMainWindow):
     status_changed: pyqtSignal = pyqtSignal(str)
 
-    def __init__(self, visualizer: RepositoryVisualizer) -> None:
+    def __init__(self, visualizer: PackageVisualizer) -> None:
         """
         Initialize the main window for the visualization application.
         """
@@ -794,7 +787,7 @@ class MainWindow(QMainWindow):
         self.current_frame = 0
         self.spin_count = 0
         self.status = "Ready"
-        self.visualizer: RepositoryVisualizer = visualizer
+        self.visualizer: PackageVisualizer = visualizer
         self.setWindowTitle(self.visualizer.window_title)
         self._current_picked_actor: Optional[pv.Actor] = None
         self._current_popup: Optional[DocstringPopup] = None
@@ -828,12 +821,10 @@ class MainWindow(QMainWindow):
             )
         )
 
-        repo_path_label: QLabel = QLabel(
-            "<b style='font-size:13px;'>Repository Path</b>"
-        )
+        repo_path_label: QLabel = QLabel("<b style='font-size:13px;'>Package Path</b>")
         control_panel.addWidget(repo_path_label)
         self.repo_path_input: QLineEdit = QLineEdit(self.visualizer.repo_path)
-        self.repo_path_input.setPlaceholderText("Enter repository path")
+        self.repo_path_input.setPlaceholderText("Enter package path")
         control_panel.addWidget(self.repo_path_input)
 
         save_path_label: QLabel = QLabel("<b style='font-size:13px;'>Save Path</b>")
@@ -937,7 +928,7 @@ class MainWindow(QMainWindow):
         # Add stretch to push the visualize button to the bottom
         control_panel.addStretch()
 
-        self.visualize_button: QPushButton = QPushButton("Visualize Repository")
+        self.visualize_button: QPushButton = QPushButton("Visualize Package")
         control_panel.addWidget(self.visualize_button)
 
         vis_panel: QVBoxLayout = QVBoxLayout()
@@ -946,7 +937,7 @@ class MainWindow(QMainWindow):
 
         button_row: QHBoxLayout = QHBoxLayout()
 
-        self.button_spin = QPushButton("Spin Repository")
+        self.button_spin = QPushButton("Spin Package")
         self.button_spin.clicked.connect(self.spin_camera)
         self.button_spin.setFixedWidth(BUTTON_WIDTH)
         self.button_spin.setStyleSheet("background-color: '#2196F3'; color: white;")
@@ -1181,7 +1172,7 @@ class MainWindow(QMainWindow):
         self.plotter.render()
 
         # Log camera adjustment
-        logger.info(
+        logger.debug(
             f"Camera adjusted to focus on object at {mesh_center} with zoom factor {ZOOM_FACTOR}"
         )
 
@@ -1414,17 +1405,17 @@ class MainWindow(QMainWindow):
 
     def update_repo_path(self) -> None:
         """
-        Update the repository path based on user input.
+        Update the package path based on user input.
         """
         text: str = self.repo_path_input.text()
-        self.visualizer.status = "Loading Repository..."
+        self.visualizer.status = "Loading Package..."
         self.visualizer.repo_path = text
 
         repo_name = os.path.basename(text)
         self.visualizer.save_path = repo_name
         self.save_path_input.setText(repo_name)
 
-        # Only update window title and status if the repository path exists
+        # Only update window title and status if the package path exists
         # The update_classes method (called when repo_path changes) will have already
         # set the appropriate error status if the path doesn't exist
         if os.path.exists(text):
@@ -1434,9 +1425,9 @@ class MainWindow(QMainWindow):
             num_faces = self.visualizer.num_faces
 
             self.setWindowTitle(
-                f"Repo: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods} | Faces: {num_faces}"
+                f"Pkg: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods} | Faces: {num_faces}"
             )
-            self.visualizer.status = "Repository loaded. Ready to visualize."
+            self.visualizer.status = "Package loaded. Ready to visualize."
         # No need for an else clause as update_classes already sets the error status
 
     def update_save_path(self, text: str) -> None:
@@ -1785,25 +1776,27 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         self.reset_camera()
         self.visualizer.status = "Ready"
-        self.update_status_display("Ready")
-        self.visualizer.visualize()
+        # self.update_status_display("Ready")
+        # self.visualizer.visualize()
 
         # After visualization is complete, log the plotter actors for debugging
-        logger.debug("Reset complete, logging plotter actors")
-        self.log_plotter_actors()
+        # logger.debug("Reset complete, logging plotter actors")
+        # self.log_plotter_actors()
+
+        return
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="3D Visualization of Python Repository Structure"
+        description="3D Visualization of Python Package Structure"
     )
     parser.add_argument(
-        "--repo_path", type=str, help="Path to the input repository", required=True
+        "--repo_path", type=str, help="Path to the input package", required=True
     )
     parser.add_argument(
         "--save_path",
         type=str,
-        help="Path to save the output visualization. Defaults to the input repository name if not provided.",
+        help="Path to save the output visualization. Defaults to the input package name if not provided.",
         required=False,
     )
     args = parser.parse_args()
@@ -1815,7 +1808,7 @@ if __name__ == "__main__":
         else os.path.basename(os.path.normpath(repo_path))
     )
 
-    visualizer: RepositoryVisualizer = RepositoryVisualizer(
+    visualizer: PackageVisualizer = PackageVisualizer(
         plotter=None, repo_path=repo_path, save_path=save_path
     )
 
