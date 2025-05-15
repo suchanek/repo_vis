@@ -1,24 +1,27 @@
 # pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401,W0601,W0621,C0302,E1101
 
 """
-Module: visualize_repository_qt
+Module: repovis
 
 A PyQt5 application for 3D visualization of a Python repository's structure.
 Parses classes, methods, and functions, rendering them as 3D objects using PyVista.
 
 Key Features:
 - Extracts repository structure using AST.
-- Visualizes classes (red icosahedrons or cubes, scaled by method count), methods (blue spheres),
- and functions (green cylinders or cubes around package center).
-- Interactive UI for customizing and saving visualizations (HTML, PNG, JPEG).
-- Supports picking of classes, methods, and functions to display their docstrings
- via cell picking.
+- Visualizes classes (green icosahedrons or cubes), methods (blue icosahedrons),
+  and functions (red cylinders or cubes) with connections to the package center.
+- Interactive UI for customizing and filtering visualizations by class, method, and function.
+- Supports saving visualizations in multiple formats (HTML, PNG, JPEG).
+- Enables picking of objects to display their docstrings in a popup window.
+- Camera controls including reset view and animated spinning.
+- Adaptive rendering based on repository size (different shapes and connection types).
+- Highlighting and zooming for selected elements.
 
 Usage:
-Run: python repovis.py
+Run: python repovis.py --repo_path <path_to_repo> --save_path <path_to_save>
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-14 01:59:40
+Last modified: 2025-05-15 07:50:39
 """
 
 import argparse
@@ -64,6 +67,12 @@ from utility import (
 )
 
 # Constants
+__version__: str = "0.1.0"
+__author__: str = "Eric G. Suchanek, PhD"
+__revised__: str = "2025-05-15"
+
+DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
+
 ORIGIN: Tuple[float, float, float] = (0, 0, 0)
 DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
 DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
@@ -84,6 +93,8 @@ FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
 
 BUTTON_WIDTH: int = 120
+
+ZOOM_FACTOR: float = 5.0
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
@@ -217,7 +228,7 @@ def create_3d_visualization(
 
     plotter.reset_camera()
     plotter.view_xy()
-    plotter.camera.focal_point = [0, 0, 0]
+    plotter.camera.focal_point = ORIGIN
 
     num_classes: int = len([e for e in elements if e["type"] == "class"])
     num_functions: int = len([e for e in elements if e["type"] == "function"])
@@ -240,6 +251,8 @@ def create_3d_visualization(
     class_meshes = pv.MultiBlock()
     method_meshes = pv.MultiBlock()
     function_meshes = pv.MultiBlock()
+    class_connection_meshes = pv.MultiBlock()  # MultiBlock for class connections
+    function_connection_meshes = pv.MultiBlock()  # MultiBlock for function connections
 
     # Render classes
     # rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
@@ -277,19 +290,19 @@ def create_3d_visualization(
         distance = np.linalg.norm(pos - package_center)
 
         if num_classes < 500:
-            # Draw cylinder for distance < 500
+            # Draw cylinder for classes < 500
             cylinder = pv.Cylinder(
                 center=(package_center + pos) / 2,  # Midpoint between center and class
                 direction=pos - package_center,  # Direction vector
-                radius=0.05,  # Cylinder radius
+                radius=0.025,  # Cylinder radius
                 height=distance,  # Cylinder height = distance
                 resolution=16,  # Number of sides
             )
-            plotter.add_mesh(cylinder, color="gray", smooth_shading=True)
+            class_connection_meshes.append(cylinder)
         elif num_classes <= 2000:
             # Draw line for distance between 501 and 2000
             line: pv.PolyData = pv.Line(package_center, pos)
-            plotter.add_mesh(line, color="gray", line_width=1)
+            class_connection_meshes.append(line)
         # No connection if distance > 2000
         update_interval: int = max(1, int(num_classes * 0.10))
         if class_index % update_interval == 0 or class_index == num_classes:
@@ -309,6 +322,15 @@ def create_3d_visualization(
             name="classes",
         )
 
+    # Add the class connection meshes if any exist
+    if class_connection_meshes.n_blocks > 0:
+        plotter.add_mesh(
+            class_connection_meshes,
+            color="gray",
+            smooth_shading=True,
+            name="class_connections",
+        )
+
     plotter.view_xy()
     plotter.camera.focal_point = np.array(ORIGIN)
     # rprint("[bold green]Finished rendering classes![/bold green]")
@@ -324,9 +346,6 @@ def create_3d_visualization(
             center=package_center,
         )
 
-        # rprint(
-        #    f"[bold green]Starting to render {num_functions} functions...[/bold green]"
-        # )
         logger.debug("Starting to render %s functions...", num_functions)
 
         for i, element in enumerate([e for e in elements if e["type"] == "function"]):
@@ -343,6 +362,7 @@ def create_3d_visualization(
                     direction=(0, 1, 0),
                     resolution=16,
                 )
+
             function_meshes.append(mesh)
             mesh_id = f"function_{mesh_id_counter}"
             mesh_id_counter += 1
@@ -354,7 +374,7 @@ def create_3d_visualization(
             }
             if num_functions <= 1000:
                 line: pv.PolyData = pv.Line(package_center, pos)
-                plotter.add_mesh(line, color="gray", line_width=2)
+                function_connection_meshes.append(line)
 
             update_interval: int = max(1, int(num_functions * 0.10))
             if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
@@ -372,6 +392,15 @@ def create_3d_visualization(
                 show_edges=False,
                 smooth_shading=True,
                 name="functions",
+            )
+
+        # Add the function connection meshes if any exist
+        if function_connection_meshes.n_blocks > 0:
+            plotter.add_mesh(
+                function_connection_meshes,
+                color="gray",
+                line_width=2,
+                name="function_connections",
             )
 
         # rprint("[bold green]Finished rendering functions![/bold green]")
@@ -415,6 +444,7 @@ def create_3d_visualization(
                     if total_methods <= 2000:
                         line: pv.PolyData = pv.Line(class_pos, method_positions[j])
                         plotter.add_mesh(line, color="blue", line_width=1)
+                        # Note: In the future, we could collect these in a method_connection_meshes MultiBlock
                     method_count += 1
 
                 update_interval: int = max(5, int(total_methods * 0.05))
@@ -428,6 +458,7 @@ def create_3d_visualization(
                         (100 - percent_complete) // 10
                     )
                     viz_instance.status = f"Rendering Methods | {progress_bar} {percent_complete}% ({method_count}/{total_methods})"
+
                     QApplication.processEvents()
 
         if method_meshes.n_blocks > 0:
@@ -443,6 +474,7 @@ def create_3d_visualization(
         logger.debug("Finished rendering methods!")
 
     plotter.view_xy()
+    plotter.reset_camera()
     plotter.camera.focal_point = [0, 0, 0]
     plotter.render()
     QApplication.processEvents()
@@ -452,12 +484,40 @@ def create_3d_visualization(
     )
     num_functions: int = len([e for e in elements if e["type"] == "function"])
 
-    title_text: str = (
-        f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions}"
-    )
-
     plotter.render()
     viz_instance.status = "Scene generation complete."
+
+    # Track the total number of triangles in the visualization
+    total_triangles = 0
+
+    # Update triangle count for class meshes
+    for i in range(class_meshes.n_blocks):
+        total_triangles += class_meshes[i].n_faces_strict
+
+    # Update triangle count for class connection meshes
+    for i in range(class_connection_meshes.n_blocks):
+        total_triangles += class_connection_meshes[i].n_faces_strict
+
+    # Update triangle count for function meshes
+    for i in range(function_meshes.n_blocks):
+        total_triangles += function_meshes[i].n_faces_strict
+
+    # Update triangle count for function connection meshes
+    for i in range(function_connection_meshes.n_blocks):
+        total_triangles += function_connection_meshes[i].n_faces_strict
+
+    # Update triangle count for method meshes
+    for i in range(method_meshes.n_blocks):
+        total_triangles += method_meshes[i].n_faces_strict
+
+    logger.info("Total number of triangles in the visualization: %d", total_triangles)
+
+    # Store the total triangles count in the visualizer instance
+    viz_instance.num_faces = total_triangles
+
+    title_text: str = (
+        f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions} | Faces: {total_triangles}"
+    )
 
     return plotter, title_text, actor_to_element
 
@@ -466,7 +526,7 @@ class RepositoryVisualizer(param.Parameterized):
     repo_path: str = param.String(default=DEFAULT_REP, doc="Repository path")
     save_path: str = param.String(default=DEFAULT_PACKAGE_NAME, doc="Save path")
     old_title: str = param.String(
-        default=f"{DEFAULT_PACKAGE_NAME} 3d visualization", doc="Visualization title"
+        default=DEFAULT_TITLE, doc="Previous title for the plotter"
     )
     window_title: str = param.String(
         default=f"{DEFAULT_PACKAGE_NAME} 3d visualization", doc="Window title"
@@ -492,6 +552,10 @@ class RepositoryVisualizer(param.Parameterized):
     selected_classes: List[str] = param.ListSelector(
         default=[], objects=[], doc="Selected classes"
     )
+    available_methods: List[str] = param.List(default=[], doc="Available methods")
+    selected_methods: List[str] = param.ListSelector(
+        default=[], objects=[], doc="Selected methods"
+    )
     available_functions: List[str] = param.List(default=[], doc="Available functions")
     selected_functions: List[str] = param.ListSelector(
         default=[], objects=[], doc="Selected functions"
@@ -508,6 +572,9 @@ class RepositoryVisualizer(param.Parameterized):
     num_methods: int = param.Integer(
         default=0, doc="Number of methods in the repository"
     )
+    num_faces: int = param.Integer(
+        default=0, doc="Number of faces (triangles) in the visualization"
+    )
 
     def __init__(self, plotter: Optional[pv.Plotter] = None, **params: dict) -> None:
         """
@@ -523,10 +590,11 @@ class RepositoryVisualizer(param.Parameterized):
         self.plotter = plotter
 
     @param.depends("repo_path", watch=True)
-    def update_classes(self) -> None:
+    def update_classes(self) -> bool:
         """
         Update the list of available classes, functions, and methods based on the repository path.
         """
+        self.window_title = DEFAULT_TITLE
         if os.path.exists(self.repo_path):
             self.status = "Analyzing repository..."
             self.elements = collect_elements(self.repo_path)
@@ -540,12 +608,22 @@ class RepositoryVisualizer(param.Parameterized):
                 len(e.get("methods", [])) for e in self.elements if e["type"] == "class"
             )
 
-            # Update available classes and functions
+            # Update available classes, methods, and functions
             class_names: List[str] = sorted(
                 [e["name"] for e in self.elements if e["type"] == "class"]
             )
             self.available_classes = class_names
             self.param.selected_classes.objects = class_names
+
+            # Collect method names in format "ClassName.method_name"
+            method_names: List[str] = []
+            for e in self.elements:
+                if e["type"] == "class" and "methods" in e:
+                    for method in e["methods"]:
+                        method_names.append(f"{e['name']}.{method['name']}")
+            method_names.sort()
+            self.available_methods = method_names
+            self.param.selected_methods.objects = method_names
 
             function_names: List[str] = sorted(
                 [e["name"] for e in self.elements if e["type"] == "function"]
@@ -557,18 +635,31 @@ class RepositoryVisualizer(param.Parameterized):
             self.status = f"Repository loaded: {self.repo_path}"
 
             # Update the window title
-            self.window_title = f"Repo: {self.repo_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods}"
+            self.window_title = f"Repo: {self.repo_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods} | Faces: {self.num_faces}"
 
             if self.plotter:
                 self.plotter.clear_actors()
+                return True
         else:
-            self.status = "Repository path does not exist."
-            self.available_classes = []
-            self.selected_classes = []
-            self.param.selected_classes.objects = []
-            self.available_functions = []
-            self.selected_functions = []
-            self.param.selected_functions.objects = []
+            self.reset_elements()
+            self.status = "ERROR: Repository path does not exist!"
+            self.window_title = DEFAULT_TITLE
+            return False
+
+    def reset_elements(self) -> None:
+        """
+        Reset the elements and available classes, methods, and functions.
+        """
+        self.available_classes = []
+        self.selected_classes = []
+        self.param.selected_classes.objects = []
+        self.available_functions = []
+        self.selected_functions = []
+        self.param.selected_functions.objects = []
+        self.available_methods = []
+        self.selected_methods = []
+        self.param.selected_methods.objects = []
+        self.elements = []
 
     def log_actor_to_element(self) -> None:
         """
@@ -613,13 +704,48 @@ class RepositoryVisualizer(param.Parameterized):
             return
 
         filtered_elements: List[Dict[str, Union[str, int, List[str]]]] = []
+
+        # Filter classes
         if self.selected_classes:
             for e in self.elements:
                 if e["type"] == "class" and e["name"] in self.selected_classes:
-                    filtered_elements.append(e)
+                    # If we have selected methods, filter the methods in this class
+                    if self.selected_methods and "methods" in e:
+                        # Create a copy of the class element to modify
+                        class_copy = e.copy()
+                        # Filter methods based on selection
+                        filtered_methods = []
+                        for method in e["methods"]:
+                            method_full_name = f"{e['name']}.{method['name']}"
+                            if method_full_name in self.selected_methods:
+                                filtered_methods.append(method)
+                        # Replace methods with filtered list
+                        class_copy["methods"] = filtered_methods
+                        filtered_elements.append(class_copy)
+                    else:
+                        # No method filtering, add the class as is
+                        filtered_elements.append(e)
         else:
-            filtered_elements.extend([e for e in self.elements if e["type"] == "class"])
+            # No class filtering, but we might still need to filter methods
+            for e in self.elements:
+                if e["type"] == "class":
+                    if self.selected_methods and "methods" in e:
+                        # Create a copy of the class element to modify
+                        class_copy = e.copy()
+                        # Filter methods based on selection
+                        filtered_methods = []
+                        for method in e["methods"]:
+                            method_full_name = f"{e['name']}.{method['name']}"
+                            if method_full_name in self.selected_methods:
+                                filtered_methods.append(method)
+                        # Replace methods with filtered list
+                        class_copy["methods"] = filtered_methods
+                        filtered_elements.append(class_copy)
+                    else:
+                        # No method filtering, add the class as is
+                        filtered_elements.append(e)
 
+        # Filter functions
         if self.include_functions:
             if self.selected_functions:
                 for e in self.elements:
@@ -671,6 +797,8 @@ class MainWindow(QMainWindow):
         self.visualizer: RepositoryVisualizer = visualizer
         self.setWindowTitle(self.visualizer.window_title)
         self._current_picked_actor: Optional[pv.Actor] = None
+        self._current_popup: Optional[DocstringPopup] = None
+        self._original_camera_state = None  # Store original camera state before zooming
 
         central_widget: QWidget = QWidget()
         self.setCentralWidget(central_widget)
@@ -749,6 +877,21 @@ class MainWindow(QMainWindow):
         for item in self.visualizer.available_classes:
             self.class_selector.addItem(item)
         control_panel.addWidget(self.class_selector)
+
+        control_panel.addWidget(
+            QLabel(
+                "<h2>Method Selection</h2>",
+                font=QFont("Arial", 14, QFont.Bold),
+                styleSheet="background: transparent; border: none;",
+            )
+        )
+        control_panel.addWidget(QLabel("Select methods (empty for all):"))
+        self.method_selector: QListWidget = QListWidget()
+        self.method_selector.setSelectionMode(QListWidget.MultiSelection)
+        self.method_selector.setMaximumHeight(80)
+        for item in self.visualizer.available_methods:
+            self.method_selector.addItem(item)
+        control_panel.addWidget(self.method_selector)
 
         control_panel.addWidget(
             QLabel(
@@ -884,6 +1027,7 @@ class MainWindow(QMainWindow):
             lambda: self.update_class_radius(self.class_radius_slider.value())
         )
         self.class_selector.itemSelectionChanged.connect(self.update_selected_classes)
+        self.method_selector.itemSelectionChanged.connect(self.update_selected_methods)
         self.function_selector.itemSelectionChanged.connect(
             self.update_selected_functions
         )
@@ -896,6 +1040,7 @@ class MainWindow(QMainWindow):
         self.status_changed.connect(self.update_status_display)
         self.visualizer.param.watch(self.on_status_change, "status")
         self.visualizer.param.watch(self.update_class_selector, "available_classes")
+        self.visualizer.param.watch(self.update_method_selector, "available_methods")
         self.visualizer.param.watch(
             self.update_function_selector, "available_functions"
         )
@@ -905,6 +1050,7 @@ class MainWindow(QMainWindow):
             widget.setStyleSheet("background: transparent; border: none;")
 
         self.class_selector.itemClicked.connect(self.show_class_docstring)
+        self.method_selector.itemClicked.connect(self.show_method_docstring)
         self.function_selector.itemClicked.connect(self.show_function_docstring)
 
         self.class_radius_slider.setValue(int(self.visualizer.class_radius * 20))
@@ -915,6 +1061,11 @@ class MainWindow(QMainWindow):
         """
         Show the docstring for the selected class in a popup and highlight the mesh.
         """
+        # Close any existing popup
+        if self._current_popup is not None and self._current_popup.isVisible():
+            self._current_popup.close()
+            self._current_popup = None
+
         class_name = item.text()
         class_element = next(
             (
@@ -937,18 +1088,23 @@ class MainWindow(QMainWindow):
                 mesh_id, elem = mesh_entry
                 self.highlight_actor(elem["mesh"])
 
-            popup = DocstringPopup(
+            self._current_popup = DocstringPopup(
                 f"Class: {class_name}",
                 format_docstring_to_markdown(class_element.get("docstring", "")),
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.show()
+            self._current_popup.show()
 
     def show_function_docstring(self, item) -> None:
         """
         Show the docstring for the selected function in a popup and highlight the mesh.
         """
+        # Close any existing popup
+        if self._current_popup is not None and self._current_popup.isVisible():
+            self._current_popup.close()
+            self._current_popup = None
+
         function_name = item.text()
         function_element = next(
             (
@@ -971,13 +1127,13 @@ class MainWindow(QMainWindow):
                 mesh_id, elem = mesh_entry
                 self.highlight_actor(elem["mesh"])
 
-            popup = DocstringPopup(
+            self._current_popup = DocstringPopup(
                 f"Function: {function_name}",
                 format_docstring_to_markdown(function_element.get("docstring", "")),
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.show()
+            self._current_popup.show()
 
     def highlight_actor(self, mesh):
         """
@@ -991,27 +1147,43 @@ class MainWindow(QMainWindow):
             logger.error("Plotter is not initialized.")
             return
         self.reset_actor_appearances()
+
+        # Reset camera to default position before zooming
+        self.reset_camera()
+
         highlight_actor = self.plotter.add_mesh(
             mesh, color="pink", show_edges=True, edge_color="white", line_width=3
         )
         self._current_picked_actor = highlight_actor
-        
+
+        # Store original camera state after reset
+        self._original_camera_state = {
+            "position": self.plotter.camera.position,
+            "focal_point": self.plotter.camera.focal_point,
+            "view_up": self.plotter.camera.up,
+            "distance": self.plotter.camera.distance,
+        }
+        logger.debug("Original camera state saved: %s", self._original_camera_state)
+
+        self.plotter.reset_camera()
+        # self.plotter.camera.Zoom(1.0 / ZOOM_FACTOR)
         # Get the mesh center
         mesh_center = np.array(mesh.center)
-        
+
         # Set camera focal point to mesh center
         self.plotter.camera.focal_point = mesh_center
-        
+
         # Apply zoom using PyVista's built-in camera zoom
         # Zoom factor > 1 zooms in, < 1 zooms out
-        zoom_factor = 2.0  # Adjust this value to control zoom level
-        self.plotter.camera.Zoom(zoom_factor)
-        
+        self.plotter.camera.Zoom(ZOOM_FACTOR)
+
         # Render the scene with the new camera settings
         self.plotter.render()
-        
+
         # Log camera adjustment
-        logger.debug(f"Camera adjusted to focus on object at {mesh_center} with zoom factor {zoom_factor}")
+        logger.info(
+            f"Camera adjusted to focus on object at {mesh_center} with zoom factor {ZOOM_FACTOR}"
+        )
 
     def log_plotter_actors(self):
         """
@@ -1052,11 +1224,16 @@ class MainWindow(QMainWindow):
         logger.debug("on_pick called with actor: %s", actor)
         self.reset_actor_appearances()
 
+        # Close any existing popup
+        if self._current_popup is not None and self._current_popup.isVisible():
+            self._current_popup.close()
+            self._current_popup = None
+
         # If no actor was picked or no picked point, exit early
         if actor is None:
             logger.debug("No actor was picked")
             self.update_status_display("No object picked.")
-            self.reset_picking_state()
+            # self.reset_picking_state()
             return
 
         if (
@@ -1065,7 +1242,7 @@ class MainWindow(QMainWindow):
         ):
             logger.debug("No picked point available")
             self.update_status_display("No object picked.")
-            self.reset_picking_state()
+            # self.reset_picking_state()
             return
 
         picked_point = self.vtk_plotter.picked_point
@@ -1111,7 +1288,7 @@ class MainWindow(QMainWindow):
         if picked_actor_name is None:
             logger.debug("Could not identify picked object")
             self.update_status_display("Could not identify picked object.")
-            self.reset_picking_state()
+            # self.reset_picking_state()
             return
 
         # Find the closest mesh to the picked point
@@ -1172,13 +1349,13 @@ class MainWindow(QMainWindow):
             docstring = element["docstring"]
             title = f"{element_type.capitalize()}: {element_name}"
             # self.update_status_display(f"Picked {element_type}: {element_name}")
-            popup = DocstringPopup(
+            self._current_popup = DocstringPopup(
                 title,
                 format_docstring_to_markdown(docstring),
                 self,
                 on_close_callback=self.reset_picking_state,
             )
-            popup.show()
+            self._current_popup.show()
         else:
             self.update_status_display(
                 f"No {element_type} found near the picked point."
@@ -1226,11 +1403,13 @@ class MainWindow(QMainWindow):
         """
         Reset the picking state after interaction is complete.
         """
-        self.update_status_display("Ready")
         self.reset_actor_appearances()
         self.class_selector.clearSelection()
+        self.method_selector.clearSelection()
         self.function_selector.clearSelection()
         # self.plotter.picker = None
+
+        self.update_status_display("Ready")
         self.plotter.render()
 
     def update_repo_path(self) -> None:
@@ -1245,14 +1424,20 @@ class MainWindow(QMainWindow):
         self.visualizer.save_path = repo_name
         self.save_path_input.setText(repo_name)
 
-        num_classes = self.visualizer.num_classes
-        num_functions = self.visualizer.num_functions
-        num_methods = self.visualizer.num_methods
+        # Only update window title and status if the repository path exists
+        # The update_classes method (called when repo_path changes) will have already
+        # set the appropriate error status if the path doesn't exist
+        if os.path.exists(text):
+            num_classes = self.visualizer.num_classes
+            num_functions = self.visualizer.num_functions
+            num_methods = self.visualizer.num_methods
+            num_faces = self.visualizer.num_faces
 
-        self.setWindowTitle(
-            f"Repo: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods}"
-        )
-        self.visualizer.status = "Repository loaded"
+            self.setWindowTitle(
+                f"Repo: {text} | Classes: {num_classes} | Functions: {num_functions} | Methods: {num_methods} | Faces: {num_faces}"
+            )
+            self.visualizer.status = "Repository loaded. Ready to visualize."
+        # No need for an else clause as update_classes already sets the error status
 
     def update_save_path(self, text: str) -> None:
         """
@@ -1282,6 +1467,14 @@ class MainWindow(QMainWindow):
             item.text() for item in self.class_selector.selectedItems()
         ]
 
+    def update_selected_methods(self) -> None:
+        """
+        Update the selected methods based on user selection.
+        """
+        self.visualizer.selected_methods = [
+            item.text() for item in self.method_selector.selectedItems()
+        ]
+
     def update_selected_functions(self) -> None:
         """
         Update the selected functions based on user selection.
@@ -1289,6 +1482,59 @@ class MainWindow(QMainWindow):
         self.visualizer.selected_functions = [
             item.text() for item in self.function_selector.selectedItems()
         ]
+
+    def show_method_docstring(self, item) -> None:
+        """
+        Show the docstring for the selected method in a popup and highlight the mesh.
+        """
+        # Close any existing popup
+        if self._current_popup is not None and self._current_popup.isVisible():
+            self._current_popup.close()
+            self._current_popup = None
+
+        method_name = item.text()
+        # Method name is in format "ClassName.method_name"
+        class_name, method_name_only = method_name.split(".")
+
+        # Find the class element
+        class_element = next(
+            (
+                e
+                for e in self.visualizer.elements
+                if e["type"] == "class" and e["name"] == class_name
+            ),
+            None,
+        )
+
+        if class_element and "methods" in class_element:
+            # Find the method in the class's methods
+            method = next(
+                (m for m in class_element["methods"] if m["name"] == method_name_only),
+                None,
+            )
+
+            if method:
+                # Find the mesh for this method
+                mesh_entry = next(
+                    (
+                        (mesh_id, elem)
+                        for mesh_id, elem in self.visualizer.actor_to_element.items()
+                        if elem["type"] == "method" and elem["name"] == method_name
+                    ),
+                    None,
+                )
+
+                if mesh_entry:
+                    mesh_id, elem = mesh_entry
+                    self.highlight_actor(elem["mesh"])
+
+                self._current_popup = DocstringPopup(
+                    f"Method: {method_name}",
+                    format_docstring_to_markdown(method.get("docstring", "")),
+                    self,
+                    on_close_callback=self.reset_picking_state,
+                )
+                self._current_popup.show()
 
     def update_include_functions(self, state: int) -> None:
         """
@@ -1330,18 +1576,22 @@ class MainWindow(QMainWindow):
                 self.status_display.setText(
                     f"<span style='font-size:12px'>{save_path}</span> "
                 )
+
             case status if status.startswith("Error"):
                 self.status_display.setText(
                     f"<span style='color:#cc0000'><b>💥 Error:</b> {status[6:]}</span>"
                 )
+
             case status if "Analyzing" in status or "Creating" in status:
                 self.status_display.setText(
                     f"<span style='color:#0066cc'><b>⏳ {status}</b></span>"
                 )
+
             case status if "Ready" in status:
                 self.status_display.setText(
-                    f"<span style='color:#006600'><b>⏳ {status}</b></span>"
+                    f"<span style='color:#006600'><b>⚡ {status}</b></span>"
                 )
+
             case status if "Scene generation" in status or "Spin complete" in status:
                 self.status_display.setText(
                     f"<span style='color:#006600'><b>⏳ {status}</b></span>"
@@ -1351,15 +1601,14 @@ class MainWindow(QMainWindow):
                 self.status_display.setText(
                     f"<span style='color:#006600'><b>⚡ {status}</b></span>"
                 )
-                self.status = status
+
             case status if "Found" in status:
                 parts: List[str] = status.split("Found ")
                 self.status_display.setText(
                     f"<span style='color:#008800'><b>✓</b> Found {parts[1]}</span>"
                 )
-            case status if "Rendering" in status and "%" not in status:
-                self.status_display.setText(status)
-            case status if "progress" in status:
+
+            case status if "Rendering" in status:
                 progress_parts = status.split("|")
                 if len(progress_parts) >= 2:
                     task_name = progress_parts[0].strip()
@@ -1371,6 +1620,7 @@ class MainWindow(QMainWindow):
                     self.status_display.setText(status)
             case _:
                 self.status_display.setText(status)
+        self.status = status
 
     def update_class_selector(self, event: param.Event) -> None:
         """
@@ -1379,6 +1629,14 @@ class MainWindow(QMainWindow):
         self.class_selector.clear()
         for item in event.new:
             self.class_selector.addItem(item)
+
+    def update_method_selector(self, event: param.Event) -> None:
+        """
+        Update the method selector with new available methods.
+        """
+        self.method_selector.clear()
+        for item in event.new:
+            self.method_selector.addItem(item)
 
     def update_function_selector(self, event: param.Event) -> None:
         """
@@ -1399,11 +1657,11 @@ class MainWindow(QMainWindow):
         Reset the camera to its default position and update the status.
         """
         plotter = self.visualizer.plotter
+
         if plotter:
+
             self.vtk_plotter.view_xy(render=False)
             plotter.camera.focal_point = [0, 0, 0]
-            plotter.camera.up = [0, 1, 0]
-            plotter.camera.right = [-1, 0, 0]
             self.visualizer.status = "Camera reset to default position."
         else:
             self.visualizer.status = "Plotter is not initialized."
@@ -1472,7 +1730,7 @@ class MainWindow(QMainWindow):
         fps = 30  # frames per second
         dpf = 2  # degrees per frame
         duration = spins / sps
-        center = np.array([0, 0, 0])
+        center = np.array(ORIGIN)
         n_points = int(360 / dpf)
 
         plotter = self.visualizer.plotter
