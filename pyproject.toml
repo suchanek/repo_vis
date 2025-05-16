@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "pkg-vis"
+name = "pkg-visualizer"
 version = "0.1.0"
 description = "A Python application for visualizing Python packagesin 3D using PyVistaQt"
 authors = ["Eric G. Suchanek, Ph.D <suchanek@mac.com>"]
