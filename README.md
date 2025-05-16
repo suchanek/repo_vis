@@ -1,55 +1,82 @@
-# repovis
+# pkg_visualizer
 
-`repovis` is a Python-based application that visualizes the structure of Python repositories in 3D. It provides an interactive and dynamic way to explore the Classes, Methods, and Functions within a repository. Built using Pyvista and pyqt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The ``examples`` directory has some exported .html files representing some of the most significant Python repositories currently.
+`pkg_vis` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
 ## Features
 
 - **Dynamic Visualization**:
-  - Automatically adjusts the size of visual elements (e.g., classes and methods) based on the repository size.
-  - Uses cubes for functions when their count exceeds 1000 for better performance and clarity.
+  - Adjust class object size at runtime via a slider (`class_radius`).
+  - Method and function sizes scale automatically relative to the class and package radii.
+  - Adaptive shapes based on element count:
+    - Classes rendered as icosahedrons (low-to-moderate count) or cubes (very large count).
+    - Functions rendered as cylinders (up to 1000) or cubes (above 1000).
+  - Adaptive connections:
+    - Class connections drawn as cylinders when total classes < 500.
+    - Class connections drawn as lines when classes between 500 and 2000.
+    - Connections disabled when classes exceed 2000.
 
 - **Interactive UI**:
-  - Includes sliders to control class and method radii.
-  - "Reset Settings" button to restore default slider values and camera position.
-  - Selecting a class or method will highlight the object on the screen and pop up the docstring.
+  - **Class Selector**: Multi-select list to include specific classes.
+  - **Method Selector**: Multi-select list to include specific methods. Disabled when "Render Methods" is unchecked.
+  - **Function Selector**: Multi-select list to include specific functions. Disabled when "Render Functions" is unchecked.
+  - **Checkboxes** to enable/disable rendering of functions and methods, which also toggles the corresponding selectors.
+  - **Visualize** button to generate or update the 3D scene.
 
-- **Customizable Appearance**:
-  - Supports dynamic scaling of class and method objects using `class_object_radius` and `method_object_radius`.
-  - System theme-aware. The program will track light/dark mode system settings automatically
+- **Docstring Popups & Picking**:
+  - Click on a list entry or mesh to highlight the object and open a popup displaying its docstring (rendered via Markdown).
 
-- **Code Insights**:
-  - Displays the hierarchy and relationships between classes, methods, and functions in a repository.
+- **Camera Controls**:
+  - **Reset View** button to restore the camera to the default orientation.
+  - **Spin Package** button to animate a smooth 360° rotation around the package center.
+  - Keyboard and mouse interactions supported by PyVista.
 
-## Recent Enhancements
+- **Export & Save**:
+  - Save the current view to **HTML**, **PNG**, or **JPG** via the **Save View** button.
+  - Saved files include the current camera position and scene state.
 
-1. **Dynamic Adjustments**:
-   - Introduced logic to scale visual elements dynamically based on repository size.
-
-2. **UI Improvements**:
-   - Added a "Reset Settings" button for convenience.
+- **Progress & Metrics**:
+  - Simple ASCII progress bars and percentage updates in the status display during rendering.
+  - Automatic calculation of total triangle (face) count for classes, methods, functions, and connections.
+  - Triangle count is shown in the window title upon completion.
 
 ## Installation
 
-- Install poetry
+1. Clone the repository and navigate into it:
 
-- Build the env:
+   ```bash
+   git clone <repo_url>
+   cd repo_vis
+   ```
 
-```console
-poetry install
-```
+2. Install dependencies (via Poetry):
 
-- Launch the program
+   ```bash
+   poetry install
+   ```
+
+3. Activate the virtual environment:
+
+   ```bash
+   source .venv/bin/activate
+   ```
 
 ## Usage
 
-To use `repovis`:
+Run the visualization tool by specifying at least the package path. Optionally, provide an output save path.
 
-```console
-source .venv/bin/activate
-python repo_vis/repovis.py --repo_path <path to repository source>
+```bash
+python pkg_vis/pkg_vis.py \
+  --repo_path /path/to/your/python/package \
+  [--save_path /desired/output/path]
 ```
+
+- **--repo_path**: Path to the root of the Python package to visualize.
+- **--save_path**: (Optional) Base save path (without extension). The tool will append `.html`, `.png`, or `.jpg` depending on the chosen format.
 
 ## General Considerations
 
-I've worked to dynamically reduce the object resolution as a function of the number of classes, functions
-and methods, but large repositories can take considerable time to load and render. Minutes on my Macbook Pro M3 max, so prepare to wait a bit. Progress bars should help keep an eye on rendering.
+- Large repositories (thousands of classes or functions) can take several minutes to parse and render.
+- Progress updates and adaptive detail settings help manage performance.
+- Adjust the **Class Radius** slider to zoom in on class-level structure or zoom out for an overview.
+
+Happy visualizing! 🚀
