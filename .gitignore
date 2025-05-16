@@ -174,8 +174,7 @@ cython_debug/
 .pypirc
 .ds_store
 
-*.html
 .bash_profile
-
+.venv
 
 

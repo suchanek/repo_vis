@@ -247,6 +247,7 @@ def create_3d_visualization(
     function_meshes = pv.MultiBlock()
     class_connection_meshes = pv.MultiBlock()  # MultiBlock for class connections
     function_connection_meshes = pv.MultiBlock()  # MultiBlock for function connections
+    method_connection_meshes = pv.MultiBlock()  # MultiBlock for method connections
 
     # Render classes
     # rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
@@ -437,8 +438,7 @@ def create_3d_visualization(
                     }
                     if total_methods <= 2000:
                         line: pv.PolyData = pv.Line(class_pos, method_positions[j])
-                        plotter.add_mesh(line, color="blue", line_width=1)
-                        # Note: In the future, we could collect these in a method_connection_meshes MultiBlock
+                        method_connection_meshes.append(line)
                     method_count += 1
 
                 update_interval: int = max(5, int(total_methods * 0.05))
@@ -462,6 +462,15 @@ def create_3d_visualization(
                 show_edges=False,
                 smooth_shading=False,
                 name="methods",
+            )
+
+        # Add the method connection meshes if any exist
+        if method_connection_meshes.n_blocks > 0:
+            plotter.add_mesh(
+                method_connection_meshes,
+                color="blue",
+                line_width=1,
+                name="method_connections",
             )
 
         # rprint("[bold green]Finished rendering methods![/bold green]")
@@ -499,6 +508,10 @@ def create_3d_visualization(
     # Update triangle count for function connection meshes
     for i in range(function_connection_meshes.n_blocks):
         total_triangles += function_connection_meshes[i].n_faces_strict
+    
+    # Update triangle count for method connection meshes
+    for i in range(method_connection_meshes.n_blocks):
+        total_triangles += method_connection_meshes[i].n_faces_strict
 
     # Update triangle count for method meshes
     for i in range(method_meshes.n_blocks):
@@ -578,19 +591,11 @@ class PackageVisualizer(param.Parameterized):
 
     def __del__(self) -> None:
         """
-        Clean up resources when the object is being destroyed.
+        Clean up references when the object is being destroyed.
         """
-        # Clear references to PyVista objects to prevent issues during garbage collection
         if hasattr(self, "actor_to_element"):
-            for mesh_id in list(self.actor_to_element.keys()):
-                if "mesh" in self.actor_to_element[mesh_id]:
-                    self.actor_to_element[mesh_id]["mesh"] = None
             self.actor_to_element.clear()
-
-        # Clear the plotter
-        if hasattr(self, "plotter") and self.plotter is not None:
-            self.plotter.clear_actors()
-            self.plotter = None
+        self.plotter = None
 
     def set_plotter(self, plotter: pv.Plotter) -> None:
         self.plotter = plotter
@@ -644,14 +649,16 @@ class PackageVisualizer(param.Parameterized):
             self.window_title = f"Pkg: {self.package_path} | Classes: {self.num_classes} | Functions: {self.num_functions} | Methods: {self.num_methods} | Faces: {self.num_faces}"
 
             if self.plotter:
-                self.plotter.clear_actors()
+                # Check if it's a PyVista plotter with clear_actors method
+                if hasattr(self.plotter, "clear_actors"):
+                    self.plotter.clear_actors()
                 return True
         else:
             self.reset_elements()
             self.status = "Error: Package path does not exist!"
             self.window_title = DEFAULT_TITLE
             # Clear the plotter to remove old meshes when an invalid path is entered
-            if self.plotter:
+            if self.plotter and hasattr(self.plotter, "clear_actors"):
                 self.plotter.clear_actors()
             return False
 
@@ -794,16 +801,38 @@ class PackageVisualizer(param.Parameterized):
 class MainWindow(QMainWindow):
     status_changed: pyqtSignal = pyqtSignal(str)
 
-    def __init__(self, visualizer: PackageVisualizer) -> None:
+    def __init__(
+        self,
+        package_path: str = DEFAULT_REP,
+        save_path: str = DEFAULT_PACKAGE_NAME,
+        width: int = 1200,
+        height: int = 800,
+    ) -> None:
         """
         Initialize the main window for the visualization application.
+
+        :param package_path: Path to the package to visualize
+        :type package_path: str
+        :param save_path: Path to save the visualization
+        :type save_path: str
+        :param width: Width of the window
+        :type width: int
+        :param height: Height of the window
+        :type height: int
         """
         super().__init__()
         self.timer = None
         self.current_frame = 0
         self.spin_count = 0
         self.status = "Ready"
-        self.visualizer: PackageVisualizer = visualizer
+
+        # Create the PackageVisualizer internally
+        set_pyvista_theme("auto", verbose=True)
+        self.vtk_plotter: QtInteractor = QtInteractor(self, theme=pv._GlobalTheme())
+        self.visualizer: PackageVisualizer = PackageVisualizer(
+            plotter=self.vtk_plotter, package_path=package_path, save_path=save_path
+        )
+
         self.setWindowTitle(self.visualizer.window_title)
         self._current_picked_actor: Optional[pv.Actor] = None
         self._current_popup: Optional[DocstringPopup] = None
@@ -812,8 +841,6 @@ class MainWindow(QMainWindow):
         central_widget: QWidget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout: QHBoxLayout = QHBoxLayout(central_widget)
-        set_pyvista_theme("auto", verbose=True)
-        self.vtk_plotter: QtInteractor = QtInteractor(self, theme=pv._GlobalTheme())
 
         self.setStyleSheet(
             """
@@ -996,26 +1023,29 @@ class MainWindow(QMainWindow):
 
         # Store a reference to the plotter for easier access
         self.plotter = self.vtk_plotter
-        self.visualizer.set_plotter(self.vtk_plotter.ren_win)
 
         vis_panel.addWidget(self.vtk_plotter, stretch=1)
         vis_panel.addLayout(button_row)
 
+        # Create widgets to hold the layouts
         control_widget: QWidget = QWidget()
         control_widget.setLayout(control_panel)
         control_widget.setFixedWidth(375)
-        main_layout.addWidget(control_widget)
-
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(5)
 
         vis_widget: QWidget = QWidget()
         vis_widget.setLayout(vis_panel)
+
+        # Add widgets to main layout
+        main_layout.addWidget(control_widget)
         main_layout.addWidget(vis_widget, stretch=1)
 
+        # Configure layout properties
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(5)
         main_layout.setStretch(0, 1)
         main_layout.setStretch(1, 3)
 
+        # Set size policies
         central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         control_widget.setSizePolicy(
             QSizePolicy.Preferred, QSizePolicy.MinimumExpanding
@@ -1809,6 +1839,50 @@ class MainWindow(QMainWindow):
 
         return
 
+    def closeEvent(self, event):
+        """
+        Handle the window close event to properly clean up resources.
+
+        :param event: The close event.
+        :type event: QCloseEvent
+        """
+        logger.debug("Window close event received")
+
+        # Close any open popups
+        if self._current_popup is not None and self._current_popup.isVisible():
+            self._current_popup.close()
+            self._current_popup = None
+
+        # Clear references to PyVista objects
+        if hasattr(self.visualizer, "actor_to_element"):
+            try:
+                for mesh_id in list(self.visualizer.actor_to_element.keys()):
+                    if "mesh" in self.visualizer.actor_to_element[mesh_id]:
+                        self.visualizer.actor_to_element[mesh_id]["mesh"] = None
+                self.visualizer.actor_to_element.clear()
+            except Exception as e:
+                logger.debug(f"Error clearing actor_to_element: {e}")
+
+        # Clear the plotter
+        if hasattr(self, "plotter") and self.plotter is not None:
+            try:
+                # Remove all actors from the plotter
+                if hasattr(self.plotter, "actors"):
+                    self.plotter.clear_actors()
+
+                # Clear the plotter
+                if hasattr(self.plotter, "clear"):
+                    self.plotter.clear()
+
+                # Close the plotter
+                if hasattr(self.plotter, "close"):
+                    self.plotter.close()
+            except Exception as e:
+                logger.debug(f"Error clearing plotter: {e}")
+
+        # Accept the close event
+        event.accept()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -1823,6 +1897,18 @@ if __name__ == "__main__":
         help="Path to save the output visualization. Defaults to the input package name if not provided.",
         required=False,
     )
+    parser.add_argument(
+        "--width",
+        type=int,
+        help="Width of the window",
+        default=1200,
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        help="Height of the window",
+        default=800,
+    )
     args = parser.parse_args()
 
     package_path = args.package_path
@@ -1832,14 +1918,14 @@ if __name__ == "__main__":
         else os.path.basename(os.path.normpath(package_path))
     )
 
-    visualizer: PackageVisualizer = PackageVisualizer(
-        plotter=None, package_path=package_path, save_path=save_path
-    )
-
     app: QApplication = QApplication([])
-    window: MainWindow = MainWindow(visualizer)
-    visualizer.plotter = window.vtk_plotter
-    window.resize(1200, 800)
+    window: MainWindow = MainWindow(
+        package_path=package_path,
+        save_path=save_path,
+        width=args.width,
+        height=args.height,
+    )
+    window.resize(args.width, args.height)
     window.show()
     sys.exit(app.exec_())
 
