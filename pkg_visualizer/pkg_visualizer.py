@@ -1707,9 +1707,9 @@ class MainWindow(QMainWindow):
 
             self.vtk_plotter.view_xy(render=False)
             plotter.camera.focal_point = [0, 0, 0]
-            self.visualizer.status = "Camera reset to default position."
+            self.visualizer.status = "Ready: View reset to default."
         else:
-            self.visualizer.status = "Plotter is not initialized."
+            self.visualizer.status = "Error: Plotter is not initialized."
 
     def save_current_view(self) -> None:
         """
