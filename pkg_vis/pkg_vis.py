@@ -575,20 +575,20 @@ class PackageVisualizer(param.Parameterized):
         self.elements: List[Dict[str, Union[str, int, List[str]]]] = []
         self.actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
         self.update_classes()
-        
+
     def __del__(self) -> None:
         """
         Clean up resources when the object is being destroyed.
         """
         # Clear references to PyVista objects to prevent issues during garbage collection
-        if hasattr(self, 'actor_to_element'):
+        if hasattr(self, "actor_to_element"):
             for mesh_id in list(self.actor_to_element.keys()):
-                if 'mesh' in self.actor_to_element[mesh_id]:
-                    self.actor_to_element[mesh_id]['mesh'] = None
+                if "mesh" in self.actor_to_element[mesh_id]:
+                    self.actor_to_element[mesh_id]["mesh"] = None
             self.actor_to_element.clear()
-        
+
         # Clear the plotter
-        if hasattr(self, 'plotter') and self.plotter is not None:
+        if hasattr(self, "plotter") and self.plotter is not None:
             self.plotter.clear_actors()
             self.plotter = None
 
@@ -648,7 +648,7 @@ class PackageVisualizer(param.Parameterized):
                 return True
         else:
             self.reset_elements()
-            self.status = "ERROR Package path does not exist!"
+            self.status = "Error: Package path does not exist!"
             self.window_title = DEFAULT_TITLE
             # Clear the plotter to remove old meshes when an invalid path is entered
             if self.plotter:
@@ -812,6 +812,8 @@ class MainWindow(QMainWindow):
         central_widget: QWidget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout: QHBoxLayout = QHBoxLayout(central_widget)
+        set_pyvista_theme("auto", verbose=True)
+        self.vtk_plotter: QtInteractor = QtInteractor(self, theme=pv._GlobalTheme())
 
         self.setStyleSheet(
             """
@@ -827,7 +829,7 @@ class MainWindow(QMainWindow):
 
         control_panel: QVBoxLayout = QVBoxLayout()
         control_panel.setSpacing(5)
-        control_panel.setContentsMargins(8, 8, 8, 8)
+        control_panel.setContentsMargins(6, 6, 6, 6)
 
         control_panel.addWidget(
             QLabel(
@@ -941,6 +943,10 @@ class MainWindow(QMainWindow):
         # Add the checkbox layout to the control panel
         control_panel.addLayout(checkbox_layout)
 
+        # Set initial enabled state for selectors
+        self.function_selector.setEnabled(self.visualizer.include_functions)
+        self.method_selector.setEnabled(self.visualizer.render_methods)
+
         # Add stretch to push the visualize button to the bottom
         control_panel.addStretch()
 
@@ -986,8 +992,6 @@ class MainWindow(QMainWindow):
         self.status_display.setStyleSheet("font-weight: bold; font-size: 14px;")
         button_row.addWidget(self.status_display, stretch=1)
 
-        set_pyvista_theme("auto", verbose=True)
-        self.vtk_plotter: QtInteractor = QtInteractor(self, theme=pv._GlobalTheme())
         # Store a reference to the plotter for easier access
         self.plotter = self.vtk_plotter
         self.visualizer.set_plotter(self.vtk_plotter.ren_win)
@@ -1545,15 +1549,17 @@ class MainWindow(QMainWindow):
 
     def update_include_functions(self, state: int) -> None:
         """
-        Update the include functions flag based on checkbox state.
+        Update the include functions flag based on checkbox state and enable/disable the function selector.
         """
         self.visualizer.include_functions = state == Qt.Checked
+        self.function_selector.setEnabled(self.visualizer.include_functions)
 
     def update_render_methods(self, state: int) -> None:
         """
-        Update the render methods flag based on checkbox state.
+        Update the render methods flag based on checkbox state and enable/disable the method selector.
         """
         self.visualizer.render_methods = state == Qt.Checked
+        self.method_selector.setEnabled(self.visualizer.render_methods)
 
     def on_visualize_clicked(self) -> None:
         """

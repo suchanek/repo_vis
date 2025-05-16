@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "pkg-visualizer"
+name = "pkg-vis"
 version = "0.1.0"
-description = "A Python application for visualizing Python packagesin 3D using PyVista and Panel."
+description = "A Python application for visualizing Python packagesin 3D using PyVistaQt"
 authors = ["Eric G. Suchanek, Ph.D <suchanek@mac.com>"]
 license = "GPL"
 
