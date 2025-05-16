@@ -79,6 +79,82 @@ python pkg_visualizer/pkg_visualizer.py \
 - **--width**: (Optional) Width of the visualization window (default: 1200).
 - **--height**: (Optional) Height of the visualization window (default: 800).
 
+## Under the Hood
+
+This section explains the internal workings of the visualization algorithm to provide insight into how the 3D representations are created.
+
+### Package Analysis & Parsing
+
+- **AST-Based Code Parsing**: The tool uses Python's Abstract Syntax Tree (AST) module to parse Python files and extract structural information without executing the code.
+
+- **Element Collection**: The system walks through all `.py` files in the package recursively, identifying:
+  - Classes and their methods
+  - Standalone functions
+  - Docstrings for all elements
+
+- **Duplicates Handling**: A tracking mechanism (`seen_classes` and `seen_functions` sets) ensures that each class and function is only included once in the visualization.
+
+### Visualization Algorithm
+
+#### 3D Space Distribution
+
+- **Fibonacci Sphere Distribution**: Classes and functions are positioned using the Fibonacci sphere algorithm, which creates nearly uniform point distributions on a sphere's surface, ensuring optimal spacing even with large numbers of elements.
+
+- **Hierarchical Positioning**:
+  - Package center serves as the origin (0,0,0)
+  - Classes orbit around the package in a spherical arrangement
+  - Methods orbit their parent classes in smaller spheres
+  - Functions orbit the package center at a larger radius than classes
+
+#### Mesh Generation & Rendering
+
+- **Adaptive Geometry Selection**:
+  - For small to moderate packages (< 2000 classes): Icosahedrons represent classes
+  - For large packages (> 2000 classes): Simpler cube geometries are used
+  - For functions: Cylinders up to 1000, cubes above 1000
+  - Methods are always rendered as icosahedrons
+  
+- **Connection Logic**:
+  - Connections are rendered differently based on element count:
+    - Cylinders for fewer than 500 classes (high detail)
+    - Lines for 500-2000 classes (medium detail)
+    - No connections for extremely large packages (> 2000 classes) to improve performance
+  - Method connections are only drawn if total methods < 2000
+
+- **Performance Optimization**:
+  - MultiBlock collections group similar meshes for efficient rendering
+  - Triangle count is carefully tracked and displayed
+  - Selective rendering of methods and functions based on user preferences
+  - Progress tracking with incremental updates for large packages
+
+#### Picking & Interaction
+
+- **Mesh Mapping System**: Each 3D object (mesh) is assigned a unique ID that maps to its corresponding code element (class, method, or function).
+
+- **Picking Algorithm**: PyVista's picking functionality is enhanced with custom callbacks that:
+  1. Identify which mesh was clicked
+  2. Retrieve the associated element information
+  3. Display docstrings in formatted Markdown popups
+  4. Highlight the selected element
+
+#### Triangle Count Calculation
+
+- **Face Counting**: The total triangle count is calculated by summing:
+  - Faces from class meshes
+  - Faces from method meshes
+  - Faces from function meshes
+  - Faces from all connection geometries
+
+- This provides a performance metric and indicates visualization complexity
+
+### UI Integration
+
+- **PyQt5 and PyVista Integration**: The Qt-based UI is integrated with PyVista's rendering capabilities through the QtInteractor class.
+
+- **Real-time Updates**: Status messages, progress bars, and selection updates are processed through Qt's event loop with `QApplication.processEvents()` to maintain UI responsiveness.
+
+- **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
+
 ## General Considerations
 
 - Large repositories (thousands of classes or functions) can take several minutes to parse and render.

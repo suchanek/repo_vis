@@ -56,7 +56,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from pyvistaqt import QtInteractor
-from rich import print as rprint
+
+# from rich import print as rprint
 from rich.logging import RichHandler
 from utility import (
     can_import,
@@ -1099,6 +1100,9 @@ class MainWindow(QMainWindow):
         self.class_radius_slider.setValue(int(self.visualizer.class_radius * 20))
         font = QFont("Arial", 12)
         self.setFont(font)
+        self.resize(width, height)
+
+        return
 
     def show_class_docstring(self, item) -> None:
         """
@@ -1225,7 +1229,7 @@ class MainWindow(QMainWindow):
 
         # Log camera adjustment
         logger.debug(
-            f"Camera adjusted to focus on object at {mesh_center} with zoom factor {ZOOM_FACTOR}"
+            "Camera adjusted to focus on object at %s with zoom factor %s", mesh_center, ZOOM_FACTOR
         )
 
     def log_plotter_actors(self):
@@ -1946,7 +1950,7 @@ if __name__ == "__main__":
         width=args.width,
         height=args.height,
     )
-    window.resize(args.width, args.height)
+
     window.show()
     sys.exit(app.exec_())
 
