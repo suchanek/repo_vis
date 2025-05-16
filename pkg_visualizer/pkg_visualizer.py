@@ -92,7 +92,7 @@ METHOD_COLOR: str = "blue"
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
 CYLINDER_RADIUS: float = 0.05
-BUTTON_WIDTH: int = 120
+BUTTON_WIDTH: int = 110
 
 ZOOM_FACTOR: float = 5.0
 
@@ -508,7 +508,7 @@ def create_3d_visualization(
     # Update triangle count for function connection meshes
     for i in range(function_connection_meshes.n_blocks):
         total_triangles += function_connection_meshes[i].n_faces_strict
-    
+
     # Update triangle count for method connection meshes
     for i in range(method_connection_meshes.n_blocks):
         total_triangles += method_connection_meshes[i].n_faces_strict
@@ -1619,38 +1619,38 @@ class MainWindow(QMainWindow):
             case status if status.startswith("Visualization "):
                 save_path: str = status.split("Visualization saved to ")[-1].strip()
                 self.status_display.setText(
-                    f"<span style='color:#006600'>{save_path}</span> "
+                    f"<span style='color:#006600; font-size:14px;'>{save_path}</span> "
                 )
 
             case status if status.startswith("Error"):
                 self.status_display.setText(
-                    f"<span style='color:#cc0000'><b>💥 Error:</b> {status[6:]}</span>"
+                    f"<span style='color:#cc0000; font-size:14px;'><b>💥 Error:</b> {status[6:]}</span>"
                 )
 
             case status if "Analyzing" in status or "Creating" in status:
                 self.status_display.setText(
-                    f"<span style='color:#0066cc'><b>⏳ {status}</b></span>"
+                    f"<span style='color:#0066cc; font-size:14px;'><b>⏳ {status}</b></span>"
                 )
 
             case status if "Ready" in status:
                 self.status_display.setText(
-                    f"<span style='color:#006600'><b>⚡ {status}</b></span>"
+                    f"<span style='color:#006600; font-size:14px;'><b>⚡ {status}</b></span>"
                 )
 
             case status if "Scene generation" in status or "Spin complete" in status:
                 self.status_display.setText(
-                    f"<span style='color:#006600'><b>⏳ {status}</b></span>"
+                    f"<span style='color:#006600; font-size:14px;'><b>⏳ {status}</b></span>"
                 )
                 time.sleep(0.5)
                 status = "Ready"
                 self.status_display.setText(
-                    f"<span style='color:#006600'><b>⚡ {status}</b></span>"
+                    f"<span style='color:#006600; font-size:14px;'><b>⚡ {status}</b></span>"
                 )
 
             case status if "Found" in status:
                 parts: List[str] = status.split("Found ")
                 self.status_display.setText(
-                    f"<span style='color:#008800'><b>✓</b> Found {parts[1]}</span>"
+                    f"<span style='color:#008800; font-size:14px;'><b>✓</b> Found {parts[1]}</span>"
                 )
 
             case status if "Rendering" in status:
@@ -1659,7 +1659,7 @@ class MainWindow(QMainWindow):
                     task_name = progress_parts[0].strip()
                     progress_info = progress_parts[1].strip()
                     self.status_display.setText(
-                        f"<span style='color:#0066cc'><b>{task_name}</b></span> | <span style='color:#008800'>{progress_info}</span>"
+                        f"<span style='color:#0066cc; font-size:14px;'><b>{task_name}</b></span> | <span style='color:#008800; font-size:14px;'>{progress_info}</span>"
                     )
                 else:
                     self.status_display.setText(status)
@@ -1730,6 +1730,25 @@ class MainWindow(QMainWindow):
         plotter: pv.Plotter = self.visualizer.plotter
         save_path = Path(save_path).with_suffix(f".{save_format}")
 
+        # Ensure the parent directory exists
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug("Ensured parent directory exists: %s", save_path.parent)
+        except PermissionError as e:
+            error_msg = f"Permission denied when creating directory: {str(e)}"
+            logger.error(error_msg)
+            self.visualizer.status = f"Error saving: {error_msg}"
+            self.status_changed.emit(self.visualizer.status)
+            QApplication.processEvents()
+            return
+        except Exception as e:
+            error_msg = f"Failed to create directory: {str(e)}"
+            logger.error(error_msg)
+            self.visualizer.status = f"Error saving: {error_msg}"
+            self.status_changed.emit(self.visualizer.status)
+            QApplication.processEvents()
+            return
+
         # rprint("[bold green]Starting save operation...[/bold green]")
         logger.debug("Starting save operation to %s", save_path)
 
@@ -1762,9 +1781,11 @@ class MainWindow(QMainWindow):
             logger.debug("Visualization saved to %s", save_path)
             self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
-        except (ValueError, RuntimeError) as e:
+        except (ValueError, RuntimeError, FileNotFoundError) as e:
             logger.error("Failed to save: %s", e)
             self.visualizer.status = f"Error saving visualization: {str(e)}"
+            self.status_changed.emit(self.visualizer.status)
+            QApplication.processEvents()
 
     def spin_camera(self):
         """
