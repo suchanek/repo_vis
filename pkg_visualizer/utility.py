@@ -152,6 +152,62 @@ def fibonacci_sphere(
     return points
 
 
+def fibonacci_annulus(
+    samples: int,
+    inner_radius: float = 1.0,
+    outer_radius: float = 2.0,
+    center: Optional[np.ndarray] = None,
+    y_thickness: float = 0.2,
+) -> List[np.ndarray]:
+    """
+    Generate points in a ring-shaped annulus (circular disk with hole) using the Fibonacci spiral algorithm.
+    Points are distributed along the XZ plane with a small Y variation for better visualization.
+
+    :param samples: Number of points to generate.
+    :type samples: int
+    :param inner_radius: Inner radius of the annulus.
+    :type inner_radius: float
+    :param outer_radius: Outer radius of the annulus.
+    :type outer_radius: float
+    :param center: Center of the annulus as a numpy array.
+    :type center: Optional[np.ndarray]
+    :param y_thickness: Thickness of the annulus in the Y direction.
+    :type y_thickness: float
+    :return: A list of numpy arrays representing points in the annulus.
+    :rtype: List[np.ndarray]
+    """
+    if center is None:
+        center = np.array([0, 0, 0])
+    if samples <= 0:
+        return []
+    if samples == 1:
+        radius = (inner_radius + outer_radius) / 2
+        return [center + radius * np.array([1, 0, 0])]
+
+    points: List[np.ndarray] = []
+    phi: float = np.pi * (3.0 - np.sqrt(5.0))  # Golden angle in radians
+
+    # Calculate radius increment for each point
+    radius_range = outer_radius - inner_radius
+    radius_increment = radius_range / samples
+
+    for i in range(samples):
+        # Calculate radius: gradually increases from inner to outer radius as we spiral outward
+        radius = inner_radius + (i * radius_increment)
+
+        # Calculate angle based on golden angle increment
+        theta = phi * i
+
+        # Position in XZ plane (with small Y variation for aesthetics)
+        x = np.cos(theta) * radius
+        z = np.sin(theta) * radius
+        y = (np.random.random() * 2 - 1) * y_thickness  # Small random variation in Y
+
+        points.append(center + np.array([x, y, z]))
+
+    return points
+
+
 # Check PyQt5
 def can_import(module_name: str) -> Optional[object]:
     """

@@ -70,7 +70,7 @@ from utility import (
 # Constants
 __version__: str = "0.1.0"
 __author__: str = "Eric G. Suchanek, PhD"
-__revised__: str = "2025-05-15"
+__revised__: str = "2025-05-20 23:38:23"
 
 DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
 
@@ -792,11 +792,13 @@ class PackageVisualizer(param.Parameterized):
             self.window_title = title_text
             self.actor_to_element = actor_to_element
 
-            # Log the actor_to_element dictionary for debugging
-            self.log_actor_to_element()
-
         except (ValueError, RuntimeError) as e:
             self.status = f"Error creating visualization: {str(e)}"
+
+    def closeEvent(self, event):
+        """Override close event to ensure cleanup."""
+        self.cleanup()
+        event.accept()
 
 
 class MainWindow(QMainWindow):
@@ -826,6 +828,9 @@ class MainWindow(QMainWindow):
         self.current_frame = 0
         self.spin_count = 0
         self.status = "Ready"
+        if QApplication.instance() is None:
+            app = QApplication(sys.argv)
+        self.app = QApplication.instance() or QApplication(sys.argv)
 
         # Create the PackageVisualizer internally
         set_pyvista_theme("auto", verbose=True)
@@ -1104,6 +1109,39 @@ class MainWindow(QMainWindow):
 
         return
 
+    def run(self):
+        """Initialize and run the visualization."""
+        try:
+            # self.plotter = self.assemble()
+            # self.plotter.show()
+            self.app.exec()
+        except RuntimeError as e:
+            logger.error("Error running visualization: %s", e)
+        finally:
+            self.cleanup()
+
+    def show(self):
+        """Display the visualization without starting a new event loop."""
+        if not self.plotter:
+            self.plotter = self.assemble()
+        self.plotter.show()
+
+    def assemble(self):
+        """Assemble the 3D visualization components."""
+        from utility import fibonacci_sphere  # Ensure the function is imported
+
+        plotter = pv.Plotter()
+        function_positions = fibonacci_sphere(self.num_functions, radius=2.0)
+        for pos in function_positions:
+            plotter.add_mesh(pv.Sphere(radius=0.1, center=pos), color="red")
+        return plotter
+
+    def cleanup(self):
+        """Clean up resources and close the plotter."""
+        if self.plotter:
+            self.plotter.close()
+            self.plotter = None
+
     def show_class_docstring(self, item) -> None:
         """
         Show the docstring for the selected class in a popup and highlight the mesh.
@@ -1229,7 +1267,9 @@ class MainWindow(QMainWindow):
 
         # Log camera adjustment
         logger.debug(
-            "Camera adjusted to focus on object at %s with zoom factor %s", mesh_center, ZOOM_FACTOR
+            "Camera adjusted to focus on object at %s with zoom factor %s",
+            mesh_center,
+            ZOOM_FACTOR,
         )
 
     def log_plotter_actors(self):
@@ -1745,7 +1785,7 @@ class MainWindow(QMainWindow):
             self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
             return
-        except Exception as e:
+        except OSError as e:
             error_msg = f"Failed to create directory: {str(e)}"
             logger.error(error_msg)
             self.visualizer.status = f"Error saving: {error_msg}"
@@ -1885,8 +1925,8 @@ class MainWindow(QMainWindow):
                     if "mesh" in self.visualizer.actor_to_element[mesh_id]:
                         self.visualizer.actor_to_element[mesh_id]["mesh"] = None
                 self.visualizer.actor_to_element.clear()
-            except Exception as e:
-                logger.debug(f"Error clearing actor_to_element: {e}")
+            except AttributeError as e:
+                logger.debug("Error clearing actor_to_element: %s", e)
 
         # Clear the plotter
         if hasattr(self, "plotter") and self.plotter is not None:
@@ -1902,8 +1942,8 @@ class MainWindow(QMainWindow):
                 # Close the plotter
                 if hasattr(self.plotter, "close"):
                     self.plotter.close()
-            except Exception as e:
-                logger.debug(f"Error clearing plotter: {e}")
+            except AttributeError as e:
+                logger.debug("Error clearing plotter: %s", e)
 
         # Accept the close event
         event.accept()
@@ -1914,10 +1954,15 @@ if __name__ == "__main__":
         description="3D Visualization of Python Package Structure"
     )
     parser.add_argument(
-        "--package_path", type=str, help="Path to the input package", required=True
+        "--package_path",
+        "-p",
+        type=str,
+        help="Path to the input package",
+        required=False,
     )
     parser.add_argument(
         "--save_path",
+        "-s",
         type=str,
         help="Path to save the output visualization. Defaults to the input package name if not provided.",
         required=False,
@@ -1936,14 +1981,16 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    package_path = args.package_path
+    package_path = args.package_path if args.package_path else DEFAULT_REP
     save_path = (
         args.save_path
         if args.save_path
         else os.path.basename(os.path.normpath(package_path))
     )
 
-    app: QApplication = QApplication([])
+    if QApplication.instance() is None:
+        app = QApplication(sys.argv)
+
     window: MainWindow = MainWindow(
         package_path=package_path,
         save_path=save_path,
@@ -1951,7 +1998,5 @@ if __name__ == "__main__":
         height=args.height,
     )
 
-    window.show()
-    sys.exit(app.exec_())
-
-    # end of file
+    window.run()
+    sys.exit()

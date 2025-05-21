@@ -10,6 +10,10 @@
   - Adaptive shapes based on element count:
     - Classes rendered as icosahedrons (low-to-moderate count) or cubes (very large count).
     - Functions rendered as cylinders (up to 1000) or cubes (above 1000).
+  - Spatially-optimized distribution:
+    - Classes distributed on a Fibonacci sphere around the package center.
+    - Functions arranged in a Fibonacci annulus (ring) around the package, creating a clear visual distinction.
+    - Methods orbit their parent classes in smaller spheres.
   - Adaptive connections:
     - Class connections drawn as cylinders when total classes < 500.
     - Class connections drawn as lines when classes between 500 and 2000.
@@ -17,9 +21,9 @@
   - Enhanced status display with color-coded, larger text for better visibility.
 
 - **Interactive UI**:
-  - **Class Selector**: Multi-select list to include specific classes.
-  - **Method Selector**: Multi-select list to include specific methods. Disabled when "Render Methods" is unchecked.
-  - **Function Selector**: Multi-select list to include specific functions. Disabled when "Render Functions" is unchecked.
+  - **Class Selector**: Select specific classes.
+  - **Method Selector**: Select to include specific methods. Disabled when "Render Methods" is unchecked.
+  - **Function Selector**: Select to include specific functions. Disabled when "Render Functions" is unchecked.
   - **Checkboxes** to enable/disable rendering of functions and methods, which also toggles the corresponding selectors.
   - **Visualize** button to generate or update the 3D scene.
 
@@ -98,13 +102,15 @@ This section explains the internal workings of the visualization algorithm to pr
 
 #### 3D Space Distribution
 
-- **Fibonacci Sphere Distribution**: Classes and functions are positioned using the Fibonacci sphere algorithm, which creates nearly uniform point distributions on a sphere's surface, ensuring optimal spacing even with large numbers of elements.
+- **Fibonacci Sphere Distribution**: Classes are positioned using the Fibonacci sphere algorithm, which creates nearly uniform point distributions on a sphere's surface, ensuring optimal spacing even with large numbers of elements.
+
+- **Fibonacci Annulus for Functions**: Functions are arranged in a ring-shaped region (annulus) using a Fibonacci spiral algorithm. This creates a clear visual distinction between functions and classes, with functions positioned in a flat disk with inner radius of 1.25× the package radius.
 
 - **Hierarchical Positioning**:
   - Package center serves as the origin (0,0,0)
   - Classes orbit around the package in a spherical arrangement
   - Methods orbit their parent classes in smaller spheres
-  - Functions orbit the package center at a larger radius than classes
+  - Functions form a spiral pattern in an annular disk around the package
 
 #### Mesh Generation & Rendering
 
