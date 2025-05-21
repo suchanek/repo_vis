@@ -161,6 +161,17 @@ This section explains the internal workings of the visualization algorithm to pr
 
 - **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
 
+## Lifecycle Methods
+
+- `run`: Initializes and runs the visualization.
+- `show`: Displays the visualization without starting a new event loop.
+- `assemble`: Assembles the 3D visualization components.
+- `cleanup`: Cleans up resources and closes the plotter.
+
+## Fibonacci Annulus Visualization
+
+The Fibonacci annulus is used to distribute functions in a ring-shaped layout, providing a clear and visually appealing arrangement.
+
 ## General Considerations
 
 - Large repositories (thousands of classes or functions) can take several minutes to parse and render.
