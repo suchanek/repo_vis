@@ -1,4 +1,4 @@
-# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401,W0601,W0621,C0302,E1101
+# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401,W0601,W0621,C0302,E1101,C0103
 
 """
 Module: pkg_visualizer
@@ -21,7 +21,7 @@ Usage:
 Run: python pkg_visualizer.py --package_path <path_to_repo> --save_path <path_to_save>
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-15 07:50:39
+Last modified: 2025-05-21 23:03:42
 """
 
 import argparse
@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import param
 import pyvista as pv
+from find_red_bounding_box import disable_bounding_box_generation, remove_all_red_actors
 from markdown import markdown
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -70,7 +71,7 @@ from utility import (
 # Constants
 __version__: str = "0.1.0"
 __author__: str = "Eric G. Suchanek, PhD"
-__revised__: str = "2025-05-20 23:38:23"
+__revised__: str = "2025-05-21"
 
 DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
 
@@ -86,20 +87,29 @@ PACKAGE_MESH: pv.PolyData = pv.Icosahedron(center=ORIGIN, radius=PACKAGE_RADIUS)
 
 CLASS_OBJECT_RADIUS: float = 0.25 * PACKAGE_RADIUS
 CLASS_COLOR: str = "green"
+CLASS_CYLINDER_THRESHOLD: int = 500
+CLASS_MAX_LINES: int = 2000
 
 METHOD_OBJECT_RADIUS: float = 0.40 * CLASS_OBJECT_RADIUS
 METHOD_COLOR: str = "blue"
 
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
+FUNCTION_RADIUS: float = 1.5 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
+FUNCTION_MAX_CYLINDER: int = 1000
+
 CYLINDER_RADIUS: float = 0.05
+CYLINDER_RESOLUTION: int = 16
+CYLINDER_COLOR: str = "gray"
+
+
 BUTTON_WIDTH: int = 110
 
 ZOOM_FACTOR: float = 5.0
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
-logger: logging.Logger = logging.getLogger()
+logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 if can_import("PyQt5") is None:
@@ -160,7 +170,7 @@ class DocstringPopup(QDialog):
         super().closeEvent(event)
 
 
-def create_3d_visualization(
+def create_allium_visualization(
     viz_instance: "PackageVisualizer",
     elements: List[Dict[str, Union[str, int, List[str]]]],
     save_path: str,
@@ -171,7 +181,7 @@ def create_3d_visualization(
     plotter: Optional[pv.Plotter] = None,
 ) -> Tuple[pv.Plotter, str, Dict[str, Dict[str, Union[str, object]]]]:
     """
-    Create a 3D visualization of the package structure using PyVista.
+    Create a 3D 'Allium' visualization of the package structure using PyVista.
 
     :param viz_instance: Instance of PackageVisualizer to update status.
     :type viz_instance: PackageVisualizer
@@ -285,21 +295,22 @@ def create_3d_visualization(
         # Calculate distance between package center and class position
         distance = np.linalg.norm(pos - package_center)
 
-        if num_classes < 1000:
-            # Draw cylinder for classes < 500
+        if num_classes < CLASS_CYLINDER_THRESHOLD:
+            # Draw cylinder for classes < CLASS_CYLINDER_THRESHOLD
             cylinder = pv.Cylinder(
                 center=(package_center + pos) / 2,  # Midpoint between center and class
                 direction=pos - package_center,  # Direction vector
                 radius=CYLINDER_RADIUS,  # Cylinder radius
                 height=distance,  # Cylinder height = distance
-                resolution=16,  # Number of sides
+                resolution=CYLINDER_RESOLUTION,  # Number of sides
             )
             class_connection_meshes.append(cylinder)
-        elif num_classes <= 2000:
+        elif num_classes <= CLASS_MAX_LINES:
             # Draw line for distance between 501 and 2000
             line: pv.PolyData = pv.Line(package_center, pos)
             class_connection_meshes.append(line)
         # No connection if distance > 2000
+
         update_interval: int = max(1, int(num_classes * 0.10))
         if class_index % update_interval == 0 or class_index == num_classes:
             percent_complete = int((class_index / num_classes) * 100)
@@ -322,7 +333,7 @@ def create_3d_visualization(
     if class_connection_meshes.n_blocks > 0:
         plotter.add_mesh(
             class_connection_meshes,
-            color="gray",
+            color=CYLINDER_COLOR,
             smooth_shading=True,
             name="class_connections",
         )
@@ -336,9 +347,10 @@ def create_3d_visualization(
     if num_functions > 0:
         viz_instance.status = f"Rendering {num_functions} functions..."
         QApplication.processEvents()
+        function_radius_scale: float = np.sqrt(max(num_functions / 500.0, 1.0))
         function_positions: List[np.ndarray] = fibonacci_sphere(
             num_functions,
-            radius=package_radius * 1.5,
+            radius=FUNCTION_RADIUS * function_radius_scale,
             center=package_center,
         )
 
@@ -346,7 +358,7 @@ def create_3d_visualization(
 
         for i, element in enumerate([e for e in elements if e["type"] == "function"]):
             pos: np.ndarray = function_positions[i]
-            if num_functions > 1000:
+            if num_functions > FUNCTION_MAX_CYLINDER:
                 mesh: pv.PolyData = pv.Cube(
                     center=pos, x_length=0.15, y_length=0.15, z_length=0.15
                 )
@@ -355,8 +367,8 @@ def create_3d_visualization(
                     radius=FUNCTION_OBJECT_RADIUS,
                     height=FUNCTION_OBJECT_RADIUS,
                     center=pos,
-                    direction=(0, 0, 1),
-                    resolution=16,
+                    direction=(0, 1, 1),
+                    resolution=CYLINDER_RESOLUTION,
                 )
 
             function_meshes.append(mesh)
@@ -384,7 +396,7 @@ def create_3d_visualization(
         if function_meshes.n_blocks > 0:
             plotter.add_mesh(
                 function_meshes,
-                color="red",
+                color=FUNCTION_COLOR,
                 show_edges=False,
                 smooth_shading=True,
                 name="functions",
@@ -394,7 +406,7 @@ def create_3d_visualization(
         if function_connection_meshes.n_blocks > 0:
             plotter.add_mesh(
                 function_connection_meshes,
-                color="gray",
+                color=CYLINDER_COLOR,
                 line_width=2,
                 name="function_connections",
             )
@@ -459,7 +471,7 @@ def create_3d_visualization(
         if method_meshes.n_blocks > 0:
             plotter.add_mesh(
                 method_meshes,
-                color="blue",
+                color=METHOD_COLOR,
                 show_edges=False,
                 smooth_shading=False,
                 name="methods",
@@ -469,7 +481,7 @@ def create_3d_visualization(
         if method_connection_meshes.n_blocks > 0:
             plotter.add_mesh(
                 method_connection_meshes,
-                color="blue",
+                color=METHOD_COLOR,
                 line_width=1,
                 name="method_connections",
             )
@@ -480,17 +492,10 @@ def create_3d_visualization(
     plotter.view_xy()
     plotter.reset_camera()
     plotter.camera.focal_point = [0, 0, 0]
-    plotter.render()
-    QApplication.processEvents()
 
     num_methods: int = sum(
         len(e.get("methods", [])) for e in elements if e["type"] == "class"
     )
-    num_functions: int = len([e for e in elements if e["type"] == "function"])
-
-    plotter.render()
-    viz_instance.status = "Scene generation complete."
-
     # Track the total number of triangles in the visualization
     total_triangles = 0
 
@@ -526,6 +531,10 @@ def create_3d_visualization(
     title_text: str = (
         f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions} | Faces: {total_triangles}"
     )
+
+    plotter.render()
+    viz_instance.status = "Scene generation complete."
+    QApplication.processEvents()
 
     return plotter, title_text, actor_to_element
 
@@ -594,8 +603,10 @@ class PackageVisualizer(param.Parameterized):
         """
         Clean up references when the object is being destroyed.
         """
-        if hasattr(self, "actor_to_element"):
-            self.actor_to_element.clear()
+        # if hasattr(self, "actor_to_element"):
+        #    self.actor_to_element.clear()
+
+        self.plotter.clear()
         self.plotter = None
 
     def set_plotter(self, plotter: pv.Plotter) -> None:
@@ -778,7 +789,7 @@ class PackageVisualizer(param.Parameterized):
             save_path = f"{save_path}.{self.save_format}"
 
         try:
-            _, title_text, actor_to_element = create_3d_visualization(
+            _, title_text, actor_to_element = create_allium_visualization(
                 self,
                 filtered_elements,
                 save_path,
@@ -792,13 +803,11 @@ class PackageVisualizer(param.Parameterized):
             self.window_title = title_text
             self.actor_to_element = actor_to_element
 
+            # Log the actor_to_element dictionary for debugging
+            self.log_actor_to_element()
+
         except (ValueError, RuntimeError) as e:
             self.status = f"Error creating visualization: {str(e)}"
-
-    def closeEvent(self, event):
-        """Override close event to ensure cleanup."""
-        self.cleanup()
-        event.accept()
 
 
 class MainWindow(QMainWindow):
@@ -828,9 +837,6 @@ class MainWindow(QMainWindow):
         self.current_frame = 0
         self.spin_count = 0
         self.status = "Ready"
-        if QApplication.instance() is None:
-            app = QApplication(sys.argv)
-        self.app = QApplication.instance() or QApplication(sys.argv)
 
         # Create the PackageVisualizer internally
         set_pyvista_theme("auto", verbose=True)
@@ -1065,9 +1071,29 @@ class MainWindow(QMainWindow):
             show_message=False,
             font_size=14,
             left_clicking=False,
-            use_actor=True,
+            use_actor=True,  # !!!
             through=True,
         )
+
+        if hasattr(self.vtk_plotter, "picker"):
+            logger.debug("Configuring VTK picker")
+            picker = self.vtk_plotter.picker
+            picker.SetTolerance(0.005)  # Adjust tolerance for better precision
+            # Avoid restricting to pick list to ensure MultiBlock picking works
+            picker.SetPickFromList(0)  # Disable pick list restriction
+
+            # Ensure the picker is set up for mesh picking
+            if hasattr(picker, "SetPickable"):
+                for actor_name in ["classes", "methods", "functions"]:
+                    actor = self.vtk_plotter.actors.get(actor_name)
+                    if actor:
+                        picker.SetPickable(actor, 1)  # Make sure actors are pickable
+                        logger.debug("Set actor %s as pickable", actor_name)
+
+        # Log picker configuration
+        logger.debug("Picker type: %s", type(picker).__name__)
+        logger.debug("Picker tolerance: %f", picker.GetTolerance())
+        logger.debug("Pick from list: %d", picker.GetPickFromList())
 
         self.package_path_input.editingFinished.connect(self.update_package_path)
         self.save_path_input.textChanged.connect(self.update_save_path)
@@ -1107,40 +1133,10 @@ class MainWindow(QMainWindow):
         self.setFont(font)
         self.resize(width, height)
 
+        # Disable bounding box generation in the plotter
+        # disable_bounding_box_generation(self.plotter)
+
         return
-
-    def run(self):
-        """Initialize and run the visualization."""
-        try:
-            # self.plotter = self.assemble()
-            # self.plotter.show()
-            self.app.exec()
-        except RuntimeError as e:
-            logger.error("Error running visualization: %s", e)
-        finally:
-            self.cleanup()
-
-    def show(self):
-        """Display the visualization without starting a new event loop."""
-        if not self.plotter:
-            self.plotter = self.assemble()
-        self.plotter.show()
-
-    def assemble(self):
-        """Assemble the 3D visualization components."""
-        from utility import fibonacci_sphere  # Ensure the function is imported
-
-        plotter = pv.Plotter()
-        function_positions = fibonacci_sphere(self.num_functions, radius=2.0)
-        for pos in function_positions:
-            plotter.add_mesh(pv.Sphere(radius=0.1, center=pos), color="red")
-        return plotter
-
-    def cleanup(self):
-        """Clean up resources and close the plotter."""
-        if self.plotter:
-            self.plotter.close()
-            self.plotter = None
 
     def show_class_docstring(self, item) -> None:
         """
@@ -1236,8 +1232,20 @@ class MainWindow(QMainWindow):
         # Reset camera to default position before zooming
         self.reset_camera()
 
+        # Add the mesh with specific settings to prevent bounding box
         highlight_actor = self.plotter.add_mesh(
-            mesh, color="pink", show_edges=True, edge_color="white", line_width=3
+            mesh,
+            color="pink",
+            show_edges=True,
+            edge_color="white",
+            line_width=3,
+            pickable=False,  # Make it not pickable to avoid bounding box issues
+            render_points_as_spheres=False,  # Disable point rendering
+            render_lines_as_tubes=False,  # Disable line rendering as tubes
+            show_scalar_bar=False,  # Hide scalar bar
+            reset_camera=False,  # Don't reset camera
+            culling=False,  # Disable culling
+            lighting=True,  # Enable lighting
         )
         self._current_picked_actor = highlight_actor
 
@@ -1250,8 +1258,6 @@ class MainWindow(QMainWindow):
         }
         logger.debug("Original camera state saved: %s", self._original_camera_state)
 
-        self.plotter.reset_camera()
-        # self.plotter.camera.Zoom(1.0 / ZOOM_FACTOR)
         # Get the mesh center
         mesh_center = np.array(mesh.center)
 
@@ -1452,6 +1458,7 @@ class MainWindow(QMainWindow):
     def reset_actor_appearances(self):
         """
         Reset all actors to their original appearance and clear picking highlights.
+        This includes removing any bounding boxes or outlines that might be visible.
         """
         if not hasattr(self.visualizer, "actor_to_element"):
             logger.debug("No actor_to_element attribute found in visualizer")
@@ -1470,9 +1477,11 @@ class MainWindow(QMainWindow):
         for actor_name in ["classes", "methods", "functions"]:
             actor = self.plotter.actors.get(actor_name)
             if actor:
-                color = {"classes": "green", "methods": "blue", "functions": "red"}[
-                    actor_name
-                ]
+                color = {
+                    "classes": CLASS_COLOR,
+                    "methods": METHOD_COLOR,
+                    "functions": FUNCTION_COLOR,
+                }[actor_name]
                 logger.debug("Resetting color for %s actor to %s", actor_name, color)
                 actor.prop.color = color
                 actor.prop.show_edges = False
@@ -1490,6 +1499,7 @@ class MainWindow(QMainWindow):
         """
         Reset the picking state after interaction is complete.
         """
+        remove_all_red_actors(self.plotter)
         self.reset_actor_appearances()
         self.class_selector.clearSelection()
         self.method_selector.clearSelection()
@@ -1905,47 +1915,28 @@ class MainWindow(QMainWindow):
         return
 
     def closeEvent(self, event):
-        """
-        Handle the window close event to properly clean up resources.
-
-        :param event: The close event.
-        :type event: QCloseEvent
-        """
         logger.debug("Window close event received")
-
         # Close any open popups
         if self._current_popup is not None and self._current_popup.isVisible():
             self._current_popup.close()
             self._current_popup = None
-
-        # Clear references to PyVista objects
+        # Clear the actor_to_element dictionary
         if hasattr(self.visualizer, "actor_to_element"):
             try:
-                for mesh_id in list(self.visualizer.actor_to_element.keys()):
-                    if "mesh" in self.visualizer.actor_to_element[mesh_id]:
-                        self.visualizer.actor_to_element[mesh_id]["mesh"] = None
                 self.visualizer.actor_to_element.clear()
-            except AttributeError as e:
+            except Exception as e:
                 logger.debug("Error clearing actor_to_element: %s", e)
-
-        # Clear the plotter
+        # Clear and close the plotter
         if hasattr(self, "plotter") and self.plotter is not None:
             try:
-                # Remove all actors from the plotter
                 if hasattr(self.plotter, "actors"):
                     self.plotter.clear_actors()
-
-                # Clear the plotter
                 if hasattr(self.plotter, "clear"):
                     self.plotter.clear()
-
-                # Close the plotter
                 if hasattr(self.plotter, "close"):
                     self.plotter.close()
-            except AttributeError as e:
+            except Exception as e:
                 logger.debug("Error clearing plotter: %s", e)
-
-        # Accept the close event
         event.accept()
 
 
@@ -1955,10 +1946,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--package_path",
-        "-p",
+        "-k",
         type=str,
         help="Path to the input package",
         required=False,
+        default=DEFAULT_REP,
     )
     parser.add_argument(
         "--save_path",
@@ -1969,12 +1961,14 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--width",
+        "-w",
         type=int,
         help="Width of the window",
         default=1200,
     )
     parser.add_argument(
         "--height",
+        "-t",
         type=int,
         help="Height of the window",
         default=800,
@@ -1988,9 +1982,7 @@ if __name__ == "__main__":
         else os.path.basename(os.path.normpath(package_path))
     )
 
-    if QApplication.instance() is None:
-        app = QApplication(sys.argv)
-
+    app: QApplication = QApplication([])
     window: MainWindow = MainWindow(
         package_path=package_path,
         save_path=save_path,
@@ -1998,5 +1990,7 @@ if __name__ == "__main__":
         height=args.height,
     )
 
-    window.run()
-    sys.exit()
+    window.show()
+    sys.exit(app.exec_())
+
+    # end of file
