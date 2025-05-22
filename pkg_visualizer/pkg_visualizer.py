@@ -25,17 +25,21 @@ Last modified: 2025-05-21 23:03:42
 """
 
 import argparse
+import atexit
+import gc
 import logging
 import os
 import sys
 import time
+import types
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import param
 import pyvista as pv
-from find_red_bounding_box import disable_bounding_box_generation, remove_all_red_actors
+from find_red_bounding_box import remove_all_red_actors
 from markdown import markdown
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -88,13 +92,15 @@ PACKAGE_MESH: pv.PolyData = pv.Icosahedron(center=ORIGIN, radius=PACKAGE_RADIUS)
 CLASS_OBJECT_RADIUS: float = 0.25 * PACKAGE_RADIUS
 CLASS_COLOR: str = "green"
 CLASS_CYLINDER_THRESHOLD: int = 500
-CLASS_MAX_LINES: int = 2000
+CLASS_MAX_LINES: int = 1000
+CLASS_MAX_ICOSAHEDRON = 2000
 
 METHOD_OBJECT_RADIUS: float = 0.40 * CLASS_OBJECT_RADIUS
 METHOD_COLOR: str = "blue"
+METHOD_MAX_LINES = 2000
 
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
-FUNCTION_RADIUS: float = 1.5 * PACKAGE_RADIUS
+FUNCTION_RADIUS: float = 1.25 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
 FUNCTION_MAX_CYLINDER: int = 1000
 
@@ -111,6 +117,42 @@ ZOOM_FACTOR: float = 5.0
 logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Patch PyVista's PolyData.__del__ method to prevent errors during exit
+if hasattr(pv.PolyData, "__del__"):
+    original_del = pv.PolyData.__del__
+    
+    def safe_del(self):
+        """
+        Safe version of PolyData.__del__ that catches and ignores errors.
+        """
+        try:
+            original_del(self)
+        except (TypeError, AttributeError, RuntimeError):
+            # Ignore errors during deletion
+            pass
+    
+    # Replace the original __del__ method with our safe version
+    pv.PolyData.__del__ = safe_del
+    logger.debug("Patched PyVista PolyData.__del__ method")
+
+# Also patch MultiBlock.__del__ if it exists
+if hasattr(pv.MultiBlock, "__del__"):
+    original_multiblock_del = pv.MultiBlock.__del__
+    
+    def safe_multiblock_del(self):
+        """
+        Safe version of MultiBlock.__del__ that catches and ignores errors.
+        """
+        try:
+            original_multiblock_del(self)
+        except (TypeError, AttributeError, RuntimeError):
+            # Ignore errors during deletion
+            pass
+    
+    # Replace the original __del__ method with our safe version
+    pv.MultiBlock.__del__ = safe_multiblock_del
+    logger.debug("Patched PyVista MultiBlock.__del__ method")
 
 if can_import("PyQt5") is None:
     sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
@@ -271,7 +313,7 @@ def create_allium_visualization(
         pos: np.ndarray = class_positions[class_index]
         class_index += 1
         method_count: int = len(element.get("methods", []))
-        if num_classes > 2000:
+        if num_classes > CLASS_MAX_ICOSAHEDRON:
             mesh: pv.PolyData = pv.Cube(
                 center=pos,
                 x_length=viz_instance.class_object_radius * 2,
@@ -449,7 +491,7 @@ def create_allium_visualization(
                         "docstring": member.get("docstring", ""),
                         "mesh": method_mesh,  # Store the mesh object in the value
                     }
-                    if total_methods <= 2000:
+                    if total_methods <= METHOD_MAX_LINES:
                         line: pv.PolyData = pv.Line(class_pos, method_positions[j])
                         method_connection_meshes.append(line)
                     method_count += 1
@@ -598,16 +640,6 @@ class PackageVisualizer(param.Parameterized):
         self.elements: List[Dict[str, Union[str, int, List[str]]]] = []
         self.actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
         self.update_classes()
-
-    def __del__(self) -> None:
-        """
-        Clean up references when the object is being destroyed.
-        """
-        # if hasattr(self, "actor_to_element"):
-        #    self.actor_to_element.clear()
-
-        self.plotter.clear()
-        self.plotter = None
 
     def set_plotter(self, plotter: pv.Plotter) -> None:
         self.plotter = plotter
@@ -1776,9 +1808,7 @@ class MainWindow(QMainWindow):
             save_path = f"{save_path}.{save_format}"
 
         self.visualizer.status = f"Saving visualization to {save_path}..."
-        QApplication.processEvents()
-
-        self.status_changed.emit("Saving visualization...")
+        self.status_changed.emit(self.visualizer.status)
         QApplication.processEvents()
 
         plotter: pv.Plotter = self.visualizer.plotter
@@ -1831,7 +1861,6 @@ class MainWindow(QMainWindow):
                 raise ValueError(f"Unsupported save format: {save_format}")
 
             self.visualizer.status = f"Visualization saved to: {save_path}"
-            # rprint(f"[bold green]{self.visualizer.status}[/bold green]")
             logger.debug("Visualization saved to %s", save_path)
             self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
@@ -1914,31 +1943,139 @@ class MainWindow(QMainWindow):
 
         return
 
-    def closeEvent(self, event):
-        logger.debug("Window close event received")
+    def cleanup_pyvista_objects(self):
+        """
+        Perform thorough cleanup of PyVista objects to prevent errors during exit.
+        This breaks potential circular references and ensures proper cleanup.
+        """
+        logger.debug("Performing thorough PyVista cleanup")
+        
         # Close any open popups
-        if self._current_popup is not None and self._current_popup.isVisible():
-            self._current_popup.close()
+        if hasattr(self, "_current_popup") and self._current_popup is not None:
+            if hasattr(self._current_popup, "isVisible") and self._current_popup.isVisible():
+                try:
+                    self._current_popup.close()
+                except Exception as e:
+                    logger.debug("Error closing popup: %s", e)
             self._current_popup = None
-        # Clear the actor_to_element dictionary
-        if hasattr(self.visualizer, "actor_to_element"):
+        
+        # Clear the actor_to_element dictionary and break references
+        if hasattr(self, "visualizer") and hasattr(self.visualizer, "actor_to_element"):
             try:
+                # Break mesh references in actor_to_element
+                for mesh_id in list(self.visualizer.actor_to_element.keys()):
+                    elem_data = self.visualizer.actor_to_element[mesh_id]
+                    if "mesh" in elem_data:
+                        elem_data["mesh"] = None
                 self.visualizer.actor_to_element.clear()
             except Exception as e:
                 logger.debug("Error clearing actor_to_element: %s", e)
+        
         # Clear and close the plotter
         if hasattr(self, "plotter") and self.plotter is not None:
             try:
+                # Remove all actors first
                 if hasattr(self.plotter, "actors"):
+                    actor_keys = list(self.plotter.actors.keys())
+                    for actor_key in actor_keys:
+                        try:
+                            self.plotter.remove_actor(actor_key, render=False)
+                        except Exception as e:
+                            logger.debug("Error removing actor %s: %s", actor_key, e)
+                
+                # Clear all MultiBlock objects
+                if hasattr(self.visualizer, "plotter"):
+                    self.visualizer.plotter = None
+                
+                # Clear the plotter
+                if hasattr(self.plotter, "clear_actors"):
                     self.plotter.clear_actors()
                 if hasattr(self.plotter, "clear"):
                     self.plotter.clear()
                 if hasattr(self.plotter, "close"):
                     self.plotter.close()
+                
+                # Set plotter to None to break references
+                self.plotter = None
+                self.vtk_plotter = None
             except Exception as e:
                 logger.debug("Error clearing plotter: %s", e)
+        
+        # Force garbage collection
+        gc.collect()
+
+    def closeEvent(self, event):
+        """
+        Handle the window close event with thorough cleanup to prevent PyVista errors.
+        """
+        logger.debug("Window close event received")
+        
+        # Perform thorough cleanup
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                self.cleanup_pyvista_objects()
+            except Exception as e:
+                logger.debug("Error during cleanup: %s", e)
+        
         event.accept()
 
+
+# class MainWindow(QMainWindow) ends here
+
+
+# More aggressive global cleanup function for atexit
+def global_cleanup():
+    """
+    Global cleanup function registered with atexit to ensure proper cleanup
+    of PyVista objects when the program exits.
+    """
+    logger.debug("Running global cleanup on exit")
+    
+    # Suppress warnings during cleanup
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        
+        try:
+            # Clear any remaining references to PyVista objects
+            for obj in gc.get_objects():
+                if isinstance(obj, pv.PolyData) or isinstance(obj, pv.MultiBlock):
+                    try:
+                        # Monkey patch the object's __del__ method to prevent errors
+                        if hasattr(obj, "__del__"):
+                            obj.__del__ = types.MethodType(lambda self: None, obj)
+                        
+                        # Set object attributes to None to break circular references
+                        for attr_name in dir(obj):
+                            if not attr_name.startswith('__'):
+                                try:
+                                    setattr(obj, attr_name, None)
+                                except (AttributeError, TypeError):
+                                    pass
+                    except Exception as e:
+                        logger.debug("Error cleaning up PyVista object: %s", e)
+            
+            # Force garbage collection
+            gc.collect()
+            
+        except Exception as e:
+            logger.debug("Error during global cleanup: %s", e)
+
+# Register the cleanup function with atexit
+atexit.register(global_cleanup)
+
+# Monkey patch the sys.excepthook to catch and ignore specific PyVista errors
+original_excepthook = sys.excepthook
+
+def custom_excepthook(exc_type, exc_value, exc_traceback):
+    # Ignore specific PyVista/VTK errors during exit
+    if exc_type is TypeError and ("'NoneType' and 'tuple'" in str(exc_value) or 
+                                 "has no attribute" in str(exc_value)):
+        return
+    # Pass other exceptions to the original handler
+    original_excepthook(exc_type, exc_value, exc_traceback)
+
+sys.excepthook = custom_excepthook
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

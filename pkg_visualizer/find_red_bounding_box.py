@@ -128,14 +128,14 @@ def find_red_bounding_box(
                 try:
                     plotter.remove_actor(actor, reset_camera=False)
                     actor_info["removed"] = True
-                    logger.info("Removed red bounding box actor: %s", actor_name)
+                    logger.debug("Removed red bounding box actor: %s", actor_name)
                 except Exception as e:
                     logger.error("Failed to remove actor %s: %s", actor_name, str(e))
 
     if not red_boxes:
-        logger.info("No red bounding boxes found in the plotter")
+        logger.debug("No red bounding boxes found in the plotter")
     else:
-        logger.info("Found %d red bounding box actors", len(red_boxes))
+        logger.debug("Found %d red bounding box actors", len(red_boxes))
 
     return red_boxes
 
@@ -164,7 +164,7 @@ def disable_bounding_box_generation(plotter: pv.Plotter) -> bool:
 
             # Disable bounding box if the method exists
             if hasattr(picker, "ShowBoundingBox"):
-                logger.info("Disabling bounding box in picker")
+                logger.debug("Disabling bounding box in picker")
                 picker.ShowBoundingBox(False)
 
             # Set pick from list to 0 to avoid bounding box issues
@@ -193,7 +193,7 @@ def disable_bounding_box_generation(plotter: pv.Plotter) -> bool:
             ):
                 plotter.remove_actor(actor_name, reset_camera=False)
 
-        logger.info("Successfully disabled bounding box generation")
+        logger.debug("Successfully disabled bounding box generation")
         return True
 
     except Exception as e:
@@ -236,7 +236,7 @@ def remove_all_red_actors(plotter: pv.Plotter) -> int:
             if np.allclose(color, [1, 0, 0], atol=0.05):
                 try:
                     plotter.remove_actor(actor, reset_camera=False)
-                    logger.info("Removed red actor: %s", actor_name)
+                    logger.debug("Removed red actor: %s", actor_name)
                     count += 1
                 except Exception as e:
                     logger.error("Failed to remove actor %s: %s", actor_name, str(e))
