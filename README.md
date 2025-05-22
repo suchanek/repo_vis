@@ -2,6 +2,10 @@
 
 `pkg_visualizer` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
+**Version:** 0.1.0  
+**Last Updated:** 2025-05-21  
+**Author:** Eric G. Suchanek, PhD
+
 ## Features
 
 - **Dynamic Visualization**:
@@ -12,7 +16,7 @@
     - Functions rendered as cylinders (up to 1000) or cubes (above 1000).
   - Spatially-optimized distribution:
     - Classes distributed on a Fibonacci sphere around the package center.
-    - Functions arranged in a Fibonacci annulus (ring) around the package, creating a clear visual distinction.
+    - Functions positioned on a separate Fibonacci sphere with a different radius, creating a clear visual distinction.
     - Methods orbit their parent classes in smaller spheres.
   - Adaptive connections:
     - Class connections drawn as cylinders when total classes < 500.
@@ -29,6 +33,8 @@
 
 - **Docstring Popups & Picking**:
   - Click on a list entry or mesh to highlight the object and open a popup displaying its docstring (rendered via Markdown).
+  - Popups are modeless (non-blocking) and display formatted docstrings with syntax highlighting.
+  - Automatic zooming and highlighting of selected objects for better visibility.
 
 - **Camera Controls**:
   - **Reset View** button to restore the camera to the default orientation.
@@ -44,6 +50,7 @@
   - Simple ASCII progress bars and percentage updates in the status display during rendering.
   - Automatic calculation of total triangle (face) count for classes, methods, functions, and connections.
   - Triangle count is shown in the window title upon completion.
+  - Color-coded status messages for better visibility and user feedback.
 
 ## Installation
 
@@ -72,13 +79,13 @@ Run the visualization tool by specifying at least the package path. Optionally, 
 
 ```bash
 python pkg_visualizer/pkg_visualizer.py \
-  --package_path /path/to/your/python/package \
+  [--package_path /path/to/your/python/package] \
   [--save_path /desired/output/path] \
   [--width 1200] \
   [--height 800]
 ```
 
-- **--package_path**: Path to the root of the Python package to visualize.
+- **--package_path**: (Optional) Path to the root of the Python package to visualize. Defaults to my personal repo.
 - **--save_path**: (Optional) Base save path (without extension). The tool will append `.html`, `.png`, or `.jpg` depending on the chosen format.
 - **--width**: (Optional) Width of the visualization window (default: 1200).
 - **--height**: (Optional) Height of the visualization window (default: 800).
@@ -86,6 +93,12 @@ python pkg_visualizer/pkg_visualizer.py \
 ## Under the Hood
 
 This section explains the internal workings of the visualization algorithm to provide insight into how the 3D representations are created.
+
+### Memory Management
+
+- **PyVista Patching**: Custom patches for PyVista's `PolyData.__del__` and `MultiBlock.__del__` methods to prevent errors during application exit.
+- **Global Cleanup**: Comprehensive cleanup function registered with `atexit` to ensure proper resource release.
+- **Exception Handling**: Custom exception hook to catch and handle specific PyVista/VTK errors during shutdown.
 
 ### Package Analysis & Parsing
 
@@ -104,13 +117,13 @@ This section explains the internal workings of the visualization algorithm to pr
 
 - **Fibonacci Sphere Distribution**: Classes are positioned using the Fibonacci sphere algorithm, which creates nearly uniform point distributions on a sphere's surface, ensuring optimal spacing even with large numbers of elements.
 
-- **Fibonacci Annulus for Functions**: Functions are arranged in a ring-shaped region (annulus) using a Fibonacci spiral algorithm. This creates a clear visual distinction between functions and classes, with functions positioned in a flat disk with inner radius of 1.25× the package radius.
+- **Fibonacci Sphere for Functions**: Functions are positioned on a separate Fibonacci sphere with radius of 1.25× the package radius (scaled based on function count). This creates a clear visual distinction between functions and classes.
 
 - **Hierarchical Positioning**:
   - Package center serves as the origin (0,0,0)
   - Classes orbit around the package in a spherical arrangement
   - Methods orbit their parent classes in smaller spheres
-  - Functions form a spiral pattern in an annular disk around the package
+  - Functions are positioned on a separate sphere with a larger radius than the classes
 
 #### Mesh Generation & Rendering
 
@@ -142,6 +155,8 @@ This section explains the internal workings of the visualization algorithm to pr
   2. Retrieve the associated element information
   3. Display docstrings in formatted Markdown popups
   4. Highlight the selected element
+  5. Zoom in on the selected object for detailed inspection
+  6. Reset view when popup is closed
 
 #### Triangle Count Calculation
 
@@ -163,14 +178,11 @@ This section explains the internal workings of the visualization algorithm to pr
 
 ## Lifecycle Methods
 
-- `run`: Initializes and runs the visualization.
-- `show`: Displays the visualization without starting a new event loop.
-- `assemble`: Assembles the 3D visualization components.
-- `cleanup`: Cleans up resources and closes the plotter.
-
-## Fibonacci Annulus Visualization
-
-The Fibonacci annulus is used to distribute functions in a ring-shaped layout, providing a clear and visually appealing arrangement.
+- `visualize`: Creates and displays the 3D visualization based on selected parameters.
+- `reset_camera`: Resets the camera to its default position.
+- `save_current_view`: Saves the current visualization to a file.
+- `spin_camera`: Animates a smooth 360° rotation around the package center.
+- `cleanup_pyvista_objects`: Performs thorough cleanup of PyVista objects to prevent errors during exit.
 
 ## General Considerations
 
@@ -179,6 +191,7 @@ The Fibonacci annulus is used to distribute functions in a ring-shaped layout, p
 - Adjust the **Class Radius** slider to zoom in on class-level structure or zoom out for an overview.
 - Safe file saving with parent directory creation ensures visualizations can be saved anywhere.
 - Automatic error handling prevents crashes when dealing with invalid paths or permissions.
+- Memory management optimizations prevent common PyVista/VTK errors during application exit.
 
 ## Examples
 
