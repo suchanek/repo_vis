@@ -1,4 +1,4 @@
-# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401,W0601,W0621,C0302,E1101,C0103
+# pylint: disable=C0301,C0116,C0115,W0613,E0611,C0413,E0401,W0601,W0621,C0302,E1101,C0103,W0718
 
 """
 Module: pkg_visualizer
@@ -121,7 +121,7 @@ logger.setLevel(logging.INFO)
 # Patch PyVista's PolyData.__del__ method to prevent errors during exit
 if hasattr(pv.PolyData, "__del__"):
     original_del = pv.PolyData.__del__
-    
+
     def safe_del(self):
         """
         Safe version of PolyData.__del__ that catches and ignores errors.
@@ -131,7 +131,7 @@ if hasattr(pv.PolyData, "__del__"):
         except (TypeError, AttributeError, RuntimeError):
             # Ignore errors during deletion
             pass
-    
+
     # Replace the original __del__ method with our safe version
     pv.PolyData.__del__ = safe_del
     logger.debug("Patched PyVista PolyData.__del__ method")
@@ -139,7 +139,7 @@ if hasattr(pv.PolyData, "__del__"):
 # Also patch MultiBlock.__del__ if it exists
 if hasattr(pv.MultiBlock, "__del__"):
     original_multiblock_del = pv.MultiBlock.__del__
-    
+
     def safe_multiblock_del(self):
         """
         Safe version of MultiBlock.__del__ that catches and ignores errors.
@@ -149,7 +149,7 @@ if hasattr(pv.MultiBlock, "__del__"):
         except (TypeError, AttributeError, RuntimeError):
             # Ignore errors during deletion
             pass
-    
+
     # Replace the original __del__ method with our safe version
     pv.MultiBlock.__del__ = safe_multiblock_del
     logger.debug("Patched PyVista MultiBlock.__del__ method")
@@ -1949,16 +1949,19 @@ class MainWindow(QMainWindow):
         This breaks potential circular references and ensures proper cleanup.
         """
         logger.debug("Performing thorough PyVista cleanup")
-        
+
         # Close any open popups
         if hasattr(self, "_current_popup") and self._current_popup is not None:
-            if hasattr(self._current_popup, "isVisible") and self._current_popup.isVisible():
+            if (
+                hasattr(self._current_popup, "isVisible")
+                and self._current_popup.isVisible()
+            ):
                 try:
                     self._current_popup.close()
                 except Exception as e:
                     logger.debug("Error closing popup: %s", e)
             self._current_popup = None
-        
+
         # Clear the actor_to_element dictionary and break references
         if hasattr(self, "visualizer") and hasattr(self.visualizer, "actor_to_element"):
             try:
@@ -1970,7 +1973,7 @@ class MainWindow(QMainWindow):
                 self.visualizer.actor_to_element.clear()
             except Exception as e:
                 logger.debug("Error clearing actor_to_element: %s", e)
-        
+
         # Clear and close the plotter
         if hasattr(self, "plotter") and self.plotter is not None:
             try:
@@ -1982,11 +1985,11 @@ class MainWindow(QMainWindow):
                             self.plotter.remove_actor(actor_key, render=False)
                         except Exception as e:
                             logger.debug("Error removing actor %s: %s", actor_key, e)
-                
+
                 # Clear all MultiBlock objects
                 if hasattr(self.visualizer, "plotter"):
                     self.visualizer.plotter = None
-                
+
                 # Clear the plotter
                 if hasattr(self.plotter, "clear_actors"):
                     self.plotter.clear_actors()
@@ -1994,13 +1997,13 @@ class MainWindow(QMainWindow):
                     self.plotter.clear()
                 if hasattr(self.plotter, "close"):
                     self.plotter.close()
-                
+
                 # Set plotter to None to break references
                 self.plotter = None
                 self.vtk_plotter = None
             except Exception as e:
                 logger.debug("Error clearing plotter: %s", e)
-        
+
         # Force garbage collection
         gc.collect()
 
@@ -2009,7 +2012,7 @@ class MainWindow(QMainWindow):
         Handle the window close event with thorough cleanup to prevent PyVista errors.
         """
         logger.debug("Window close event received")
-        
+
         # Perform thorough cleanup
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -2017,8 +2020,25 @@ class MainWindow(QMainWindow):
                 self.cleanup_pyvista_objects()
             except Exception as e:
                 logger.debug("Error during cleanup: %s", e)
-        
+
         event.accept()
+
+    def run(self) -> None:
+        """Start the Qt application loop and display the plot."""
+        try:
+            # Get or create QApplication instance
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication(sys.argv)
+            self.show()
+            app.exec()
+        except Exception as e:
+            logger.error("Error running the application: %s", e)
+            self.visualizer.status = f"Error running the application: {str(e)}"
+            self.status_changed.emit(self.visualizer.status)
+            QApplication.processEvents()
+        finally:
+            sys.exit()
 
 
 # class MainWindow(QMainWindow) ends here
@@ -2031,11 +2051,11 @@ def global_cleanup():
     of PyVista objects when the program exits.
     """
     logger.debug("Running global cleanup on exit")
-    
+
     # Suppress warnings during cleanup
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        
+
         try:
             # Clear any remaining references to PyVista objects
             for obj in gc.get_objects():
@@ -2044,22 +2064,28 @@ def global_cleanup():
                         # Monkey patch the object's __del__ method to prevent errors
                         if hasattr(obj, "__del__"):
                             obj.__del__ = types.MethodType(lambda self: None, obj)
-                        
+
                         # Set object attributes to None to break circular references
                         for attr_name in dir(obj):
-                            if not attr_name.startswith('__'):
+                            if not attr_name.startswith("__"):
                                 try:
                                     setattr(obj, attr_name, None)
+                                    logger.info(
+                                        "Setting %s attribute %s to None for cleanup",
+                                        obj,
+                                        attr_name,
+                                    )
                                 except (AttributeError, TypeError):
                                     pass
                     except Exception as e:
                         logger.debug("Error cleaning up PyVista object: %s", e)
-            
+
             # Force garbage collection
             gc.collect()
-            
+
         except Exception as e:
             logger.debug("Error during global cleanup: %s", e)
+
 
 # Register the cleanup function with atexit
 atexit.register(global_cleanup)
@@ -2067,13 +2093,17 @@ atexit.register(global_cleanup)
 # Monkey patch the sys.excepthook to catch and ignore specific PyVista errors
 original_excepthook = sys.excepthook
 
+
 def custom_excepthook(exc_type, exc_value, exc_traceback):
     # Ignore specific PyVista/VTK errors during exit
-    if exc_type is TypeError and ("'NoneType' and 'tuple'" in str(exc_value) or 
-                                 "has no attribute" in str(exc_value)):
+    if exc_type is TypeError and (
+        "'NoneType' and 'tuple'" in str(exc_value)
+        or "has no attribute" in str(exc_value)
+    ):
         return
     # Pass other exceptions to the original handler
     original_excepthook(exc_type, exc_value, exc_traceback)
+
 
 sys.excepthook = custom_excepthook
 
@@ -2127,7 +2157,6 @@ if __name__ == "__main__":
         height=args.height,
     )
 
-    window.show()
-    sys.exit(app.exec_())
+    window.run()
 
     # end of file
