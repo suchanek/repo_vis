@@ -31,7 +31,6 @@ import logging
 import os
 import sys
 import time
-import types
 import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -70,6 +69,7 @@ from pkg_visualizer.utility import (
     collect_elements,
     fibonacci_sphere,
     format_docstring_to_markdown,
+    global_cleanup,
     set_pyvista_theme,
 )
 
@@ -81,7 +81,7 @@ __revised__: str = "2025-05-23"
 DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
 
 ORIGIN: Tuple[float, float, float] = (0, 0, 0)
-DEFAULT_REP: str = "/Users/egs/repos/proteusPy"
+DEFAULT_REP: str = "./pkg_visualizer"
 DEFAULT_PACKAGE_NAME: str = os.path.basename(DEFAULT_REP)
 DEFAULT_SAVE_PATH: str = os.path.join(os.path.expanduser("~"), "Desktop")
 DEFAULT_SAVE_NAME: str = f"{DEFAULT_PACKAGE_NAME}_3d_visualization"
@@ -119,41 +119,6 @@ logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Patch PyVista's PolyData.__del__ method to prevent errors during exit
-if hasattr(pv.PolyData, "__del__"):
-    original_del = pv.PolyData.__del__
-
-    def safe_del(self):
-        """
-        Safe version of PolyData.__del__ that catches and ignores errors.
-        """
-        try:
-            original_del(self)
-        except (TypeError, AttributeError, RuntimeError):
-            # Ignore errors during deletion
-            pass
-
-    # Replace the original __del__ method with our safe version
-    pv.PolyData.__del__ = safe_del
-    logger.debug("Patched PyVista PolyData.__del__ method")
-
-# Also patch MultiBlock.__del__ if it exists
-if hasattr(pv.MultiBlock, "__del__"):
-    original_multiblock_del = pv.MultiBlock.__del__
-
-    def safe_multiblock_del(self):
-        """
-        Safe version of MultiBlock.__del__ that catches and ignores errors.
-        """
-        try:
-            original_multiblock_del(self)
-        except (TypeError, AttributeError, RuntimeError):
-            # Ignore errors during deletion
-            pass
-
-    # Replace the original __del__ method with our safe version
-    pv.MultiBlock.__del__ = safe_multiblock_del
-    logger.debug("Patched PyVista MultiBlock.__del__ method")
 
 if can_import("PyQt5") is None:
     sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
@@ -986,7 +951,9 @@ class MainWindow(QMainWindow):
         )
         control_panel.addWidget(QLabel("Select classes (empty for all):"))
         self.class_selector: QListWidget = QListWidget()
-        self.class_selector.setSelectionMode(QListWidget.MultiSelection)
+        self.class_selector.setSelectionMode(
+            QListWidget.SingleSelection
+        )  # Change to single selection
         self.class_selector.setMaximumHeight(80)
         for item in self.visualizer.available_classes:
             self.class_selector.addItem(item)
@@ -1626,11 +1593,43 @@ class MainWindow(QMainWindow):
 
     def update_selected_classes(self) -> None:
         """
-        Update the selected classes based on user selection.
+        Update the selected classes based on user selection and filter methods accordingly.
         """
         self.visualizer.selected_classes = [
             item.text() for item in self.class_selector.selectedItems()
         ]
+
+        # Filter methods based on the selected class
+        if self.visualizer.selected_classes:
+            selected_class = self.visualizer.selected_classes[0]
+            class_element = next(
+                (
+                    e
+                    for e in self.visualizer.elements
+                    if e["type"] == "class" and e["name"] == selected_class
+                ),
+                None,
+            )
+            if class_element and "methods" in class_element:
+                method_names = [
+                    f"{selected_class}.{method['name']}"
+                    for method in class_element["methods"]
+                ]
+                self.visualizer.available_methods = method_names
+            else:
+                self.visualizer.available_methods = []
+        else:
+            # No class selected, show all methods
+            method_names = []
+            for e in self.visualizer.elements:
+                if e["type"] == "class" and "methods" in e:
+                    method_names.extend(
+                        [f"{e['name']}.{method['name']}" for method in e["methods"]]
+                    )
+            self.visualizer.available_methods = method_names
+
+        # Update the method selector
+        self.update_method_selector()
 
     def update_selected_methods(self) -> None:
         """
@@ -1797,13 +1796,13 @@ class MainWindow(QMainWindow):
         for item in event.new:
             self.class_selector.addItem(item)
 
-    def update_method_selector(self, event: param.Event) -> None:
+    def update_method_selector(self, event: param.Event = None) -> None:
         """
         Update the method selector with new available methods.
         """
         self.method_selector.clear()
-        for item in event.new:
-            self.method_selector.addItem(item)
+        for method_name in self.visualizer.available_methods:
+            self.method_selector.addItem(method_name)
 
     def update_function_selector(self, event: param.Event) -> None:
         """
@@ -1968,14 +1967,18 @@ class MainWindow(QMainWindow):
         self.class_radius_slider.update()
         QApplication.processEvents()
         self.reset_camera()
+
+        # Restore the methods list to the full list
+        method_names = []
+        for e in self.visualizer.elements:
+            if e["type"] == "class" and "methods" in e:
+                method_names.extend(
+                    [f"{e['name']}.{method['name']}" for method in e["methods"]]
+                )
+        self.visualizer.available_methods = method_names
+        self.update_method_selector()
+
         self.visualizer.status = "Ready"
-        # self.update_status_display("Ready")
-        # self.visualizer.visualize()
-
-        # After visualization is complete, log the plotter actors for debugging
-        # logger.debug("Reset complete, logging plotter actors")
-        # self.log_plotter_actors()
-
         return
 
     def cleanup_pyvista_objects(self):
@@ -2086,69 +2089,20 @@ class MainWindow(QMainWindow):
         """
         Display the docstring of the currently selected class, method, or function.
         """
-        selected_class_items = self.class_selector.selectedItems()
         selected_method_items = self.method_selector.selectedItems()
+        selected_class_items = self.class_selector.selectedItems()
         selected_function_items = self.function_selector.selectedItems()
 
-        if selected_class_items:
-            self.show_class_docstring(selected_class_items[0])
-        elif selected_method_items:
+        # Priority: Method > Class > Function
+        if selected_method_items:
             self.show_method_docstring(selected_method_items[0])
+        elif selected_class_items:
+            self.show_class_docstring(selected_class_items[0])
         elif selected_function_items:
             self.show_function_docstring(selected_function_items[0])
 
 
 # class MainWindow(QMainWindow) ends here
-
-
-# More aggressive global cleanup function for atexit
-def global_cleanup():
-    """
-    Global cleanup function registered with atexit to ensure proper cleanup
-    of PyVista objects when the program exits.
-    """
-    logger.debug("Running global cleanup on exit")
-
-    # Suppress warnings during cleanup
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-
-        try:
-            # Clear any remaining references to PyVista objects
-            for obj in gc.get_objects():
-                if isinstance(obj, pv.MultiBlock) and hasattr(obj, "clear_all_data"):
-                    try:
-                        # Use clear_all_data() for MultiBlock objects
-                        logger.debug("Clearing MultiBlock data with clear_all_data()")
-                        obj.clear_all_data()
-                    except Exception as e:
-                        logger.debug("Error clearing MultiBlock data: %s", e)
-                elif isinstance(obj, pv.PolyData) or isinstance(obj, pv.MultiBlock):
-                    try:
-                        # Monkey patch the object's __del__ method to prevent errors
-                        if hasattr(obj, "__del__"):
-                            obj.__del__ = types.MethodType(lambda self: None, obj)
-
-                        # Set object attributes to None to break circular references
-                        for attr_name in dir(obj):
-                            if not attr_name.startswith("__"):
-                                try:
-                                    setattr(obj, attr_name, None)
-                                    logger.debug(
-                                        "Setting %s attribute %s to None for cleanup",
-                                        obj,
-                                        attr_name,
-                                    )
-                                except (AttributeError, TypeError):
-                                    pass
-                    except Exception as e:
-                        logger.debug("Error cleaning up PyVista object: %s", e)
-
-            # Force garbage collection
-            gc.collect()
-
-        except Exception as e:
-            logger.debug("Error during global cleanup: %s", e)
 
 
 # Monkey patch the sys.excepthook to catch and ignore specific PyVista errors

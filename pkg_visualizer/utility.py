@@ -16,14 +16,17 @@ Key Features:
 - Format Python docstrings in :param: style to Markdown.
 
 Author: Eric G. Suchanek, PhD
-Last Modified: 2025-05-07
+Last Modified: 2025-05-24 18:53:10
 """
 
 import ast
+import gc
 import logging
 import os
 import platform
 import subprocess
+import types
+import warnings
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -449,6 +452,56 @@ def format_docstring_to_markdown(docstring: str) -> str:
             markdown_lines.append(line)
 
     return "\n".join(markdown_lines)
+
+
+# More aggressive global cleanup function for atexit
+def global_cleanup():
+    """
+    Global cleanup function registered with atexit to ensure proper cleanup
+    of PyVista objects when the program exits.
+    """
+    logger.debug("Running global cleanup on exit")
+
+    # Suppress warnings during cleanup
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        try:
+            # Clear any remaining references to PyVista objects
+            for obj in gc.get_objects():
+                if isinstance(obj, pv.MultiBlock) and hasattr(obj, "clear_all_data"):
+                    try:
+                        # Use clear_all_data() for MultiBlock objects
+                        logger.debug("Clearing MultiBlock data with clear_all_data()")
+                        obj.clear_all_data()
+                    except Exception as e:
+                        logger.debug("Error clearing MultiBlock data: %s", e)
+                elif isinstance(obj, pv.PolyData) or isinstance(obj, pv.MultiBlock):
+                    try:
+                        # Monkey patch the object's __del__ method to prevent errors
+                        if hasattr(obj, "__del__"):
+                            obj.__del__ = types.MethodType(lambda self: None, obj)
+
+                        # Set object attributes to None to break circular references
+                        for attr_name in dir(obj):
+                            if not attr_name.startswith("__"):
+                                try:
+                                    setattr(obj, attr_name, None)
+                                    logger.debug(
+                                        "Setting %s attribute %s to None for cleanup",
+                                        obj,
+                                        attr_name,
+                                    )
+                                except (AttributeError, TypeError):
+                                    pass
+                    except Exception as e:
+                        logger.debug("Error cleaning up PyVista object: %s", e)
+
+            # Force garbage collection
+            gc.collect()
+
+        except Exception as e:
+            logger.debug("Error during global cleanup: %s", e)
 
 
 # End of file
