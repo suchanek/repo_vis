@@ -3,7 +3,7 @@
 `pkg_visualizer` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
 **Version:** 0.1.0  
-**Last Updated:** 2025-05-21  
+**Last Updated:** 2025-05-23  
 **Author:** Eric G. Suchanek, PhD
 
 ## Features
@@ -47,9 +47,9 @@
   - Robust file saving with automatic directory creation and comprehensive error handling.
 
 - **Progress & Metrics**:
-  - Simple ASCII progress bars and percentage updates in the status display during rendering.
+  - Progress bars in the status display during rendering.
   - Automatic calculation of total triangle (face) count for classes, methods, functions, and connections.
-  - Triangle count is shown in the window title upon completion.
+  - Face count is shown in the window title upon completion.
   - Color-coded status messages for better visibility and user feedback.
 
 ## Installation
@@ -57,7 +57,7 @@
 1. Clone the repository and navigate into it:
 
    ```bash
-   git clone <repo_url>
+   git clone https://github.com/suchanek/repo_vis
    cd repo_vis
    ```
 
@@ -206,5 +206,20 @@ The `examples` directory contains pre-rendered HTML visualizations of several po
 - TensorFlow
 
 Open these files in any modern web browser to explore interactive 3D visualizations without having to generate them yourself.
+
+## User Interface Buttons
+
+The `pkg_visualizer` application provides an intuitive user interface with the following buttons and their respective functions:
+
+- **Visualize**: Generates or updates the 3D visualization based on the selected parameters.
+- **Reset View**: Resets the camera to the default orientation, providing a clear view of the entire package structure.
+- **Spin Package**: Animates a smooth 360° rotation of the visualization around the package center.
+- **Save View**: Saves the current visualization to a file. Supported formats include HTML, PNG, and JPG.
+- **Class Selector**: Allows users to select specific classes to include in the visualization.
+- **Method Selector**: Enables selection of specific methods. This option is disabled when "Render Methods" is unchecked.
+- **Function Selector**: Enables selection of specific functions. This option is disabled when "Render Functions" is unchecked.
+- **Checkboxes**: Toggle the rendering of functions and methods, which also enables or disables the corresponding selectors.
+
+These buttons and controls make it easy to customize and interact with the 3D visualization.
 
 Happy visualizing! 🚀

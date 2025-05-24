@@ -39,7 +39,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import param
 import pyvista as pv
-from find_red_bounding_box import remove_all_red_actors
 from markdown import markdown
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -64,7 +63,9 @@ from pyvistaqt import QtInteractor
 
 # from rich import print as rprint
 from rich.logging import RichHandler
-from utility import (
+
+from pkg_visualizer.find_red_bounding_box import remove_all_red_actors
+from pkg_visualizer.utility import (
     can_import,
     collect_elements,
     fibonacci_sphere,
@@ -75,7 +76,7 @@ from utility import (
 # Constants
 __version__: str = "0.1.0"
 __author__: str = "Eric G. Suchanek, PhD"
-__revised__: str = "2025-05-21"
+__revised__: str = "2025-05-23"
 
 DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
 
@@ -110,7 +111,7 @@ CYLINDER_COLOR: str = "gray"
 
 
 BUTTON_WIDTH: int = 110
-
+DEFAULT_CLASS_RADIUS: float = 20.0
 ZOOM_FACTOR: float = 5.0
 
 # Configure logging
@@ -217,7 +218,7 @@ def create_allium_visualization(
     elements: List[Dict[str, Union[str, int, List[str]]]],
     save_path: str,
     save_format: str = "html",
-    class_radius: float = 4.0,
+    class_radius: float = DEFAULT_CLASS_RADIUS,
     member_radius_scale: float = 1.0,
     old_title: str = "",
     plotter: Optional[pv.Plotter] = None,
@@ -256,13 +257,23 @@ def create_allium_visualization(
     plotter.enable_anti_aliasing("msaa")
     plotter.add_axes()
 
-    # Add lights (unchanged)
-    plotter.add_light(
-        pv.Light(
-            position=(80, 80, 80), focal_point=(0, 0, 0), color="white", intensity=0.9
-        )
+    # Create and position three lights
+    key_light = pv.Light(
+        position=(100, 100, 100), color="white", light_type="scene light"
+    )
+    fill_light = pv.Light(
+        position=(-100, 5, 10), color="white", intensity=0.5, light_type="scene light"
+    )
+    back_light = pv.Light(
+        position=(0, -100, -100), color="white", intensity=0.3, light_type="scene light"
     )
     headlight = pv.Light(light_type="headlight", color="white", intensity=0.9)
+
+    # Add lights to the plotter
+    plotter.add_light(key_light)
+    plotter.add_light(fill_light)
+    plotter.add_light(back_light)
+
     plotter.add_light(headlight)
 
     package_center: np.ndarray = np.array(ORIGIN)
@@ -295,12 +306,26 @@ def create_allium_visualization(
     )
 
     # Initialize MultiBlocks
-    class_meshes = pv.MultiBlock()
-    method_meshes = pv.MultiBlock()
-    function_meshes = pv.MultiBlock()
-    class_connection_meshes = pv.MultiBlock()  # MultiBlock for class connections
-    function_connection_meshes = pv.MultiBlock()  # MultiBlock for function connections
-    method_connection_meshes = pv.MultiBlock()  # MultiBlock for method connections
+    viz_instance.class_meshes = pv.MultiBlock()
+    viz_instance.method_meshes = pv.MultiBlock()
+    viz_instance.function_meshes = pv.MultiBlock()
+    viz_instance.class_connection_meshes = (
+        pv.MultiBlock()
+    )  # MultiBlock for class connections
+    viz_instance.function_connection_meshes = (
+        pv.MultiBlock()
+    )  # MultiBlock for function connections
+    viz_instance.method_connection_meshes = (
+        pv.MultiBlock()
+    )  # MultiBlock for method connections
+
+    # Create local references for easier code readability
+    class_meshes = viz_instance.class_meshes
+    method_meshes = viz_instance.method_meshes
+    function_meshes = viz_instance.function_meshes
+    class_connection_meshes = viz_instance.class_connection_meshes
+    function_connection_meshes = viz_instance.function_connection_meshes
+    method_connection_meshes = viz_instance.method_connection_meshes
 
     # Render classes
     # rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
@@ -594,7 +619,7 @@ class PackageVisualizer(param.Parameterized):
         objects=["html", "png", "jpg"], default="html", doc="Output format"
     )
     class_radius: float = param.Number(
-        default=5.5, bounds=(2.0, 75.0), step=0.5, doc="Class radius"
+        default=DEFAULT_CLASS_RADIUS, bounds=(2.0, 100.0), step=0.5, doc="Class radius"
     )
     member_radius_scale: float = param.Number(
         default=1.0, doc="Member radius scale (static)"
@@ -630,6 +655,13 @@ class PackageVisualizer(param.Parameterized):
     num_faces: int = param.Integer(
         default=0, doc="Number of faces (triangles) in the visualization"
     )
+    # MultiBlock objects for visualization
+    class_meshes: pv.MultiBlock = None
+    method_meshes: pv.MultiBlock = None
+    function_meshes: pv.MultiBlock = None
+    class_connection_meshes: pv.MultiBlock = None
+    function_connection_meshes: pv.MultiBlock = None
+    method_connection_meshes: pv.MultiBlock = None
 
     def __init__(self, plotter: Optional[pv.Plotter] = None, **params: dict) -> None:
         """
@@ -1023,8 +1055,19 @@ class MainWindow(QMainWindow):
         # Add stretch to push the visualize button to the bottom
         control_panel.addStretch()
 
+        # Add a new horizontal layout for the Visualize Package and Show Docstring buttons
+        button_layout = QHBoxLayout()
+
         self.visualize_button: QPushButton = QPushButton("Visualize Package")
-        control_panel.addWidget(self.visualize_button)
+        button_layout.addWidget(self.visualize_button)
+
+        self.show_docstring_button: QPushButton = QPushButton("Show Docstring")
+        button_layout.addWidget(self.show_docstring_button)
+
+        control_panel.addLayout(button_layout)
+
+        # Connect the Show Docstring button to the appropriate method
+        self.show_docstring_button.clicked.connect(self.show_selected_docstring)
 
         vis_panel: QVBoxLayout = QVBoxLayout()
         vis_panel.setSpacing(10)
@@ -1114,19 +1157,14 @@ class MainWindow(QMainWindow):
             # Avoid restricting to pick list to ensure MultiBlock picking works
             picker.SetPickFromList(0)  # Disable pick list restriction
 
-            # Ensure the picker is set up for mesh picking
-            if hasattr(picker, "SetPickable"):
-                for actor_name in ["classes", "methods", "functions"]:
-                    actor = self.vtk_plotter.actors.get(actor_name)
-                    if actor:
-                        picker.SetPickable(actor, 1)  # Make sure actors are pickable
-                        logger.debug("Set actor %s as pickable", actor_name)
+            # Log picker configuration
+            logger.debug("Picker type: %s", type(picker).__name__)
+            logger.debug("Picker tolerance: %f", picker.GetTolerance())
+            logger.debug("Pick from list: %d", picker.GetPickFromList())
+        else:
+            logger.warning("VTK picker is not available in this plotter instance.")
 
-        # Log picker configuration
-        logger.debug("Picker type: %s", type(picker).__name__)
-        logger.debug("Picker tolerance: %f", picker.GetTolerance())
-        logger.debug("Pick from list: %d", picker.GetPickFromList())
-
+        # Connect signals to slots
         self.package_path_input.editingFinished.connect(self.update_package_path)
         self.save_path_input.textChanged.connect(self.update_save_path)
         self.save_format_select.currentTextChanged.connect(self.update_save_format)
@@ -1156,18 +1194,15 @@ class MainWindow(QMainWindow):
         for widget in self.findChildren(QLabel):
             widget.setStyleSheet("background: transparent; border: none;")
 
-        self.class_selector.itemClicked.connect(self.show_class_docstring)
-        self.method_selector.itemClicked.connect(self.show_method_docstring)
-        self.function_selector.itemClicked.connect(self.show_function_docstring)
+        # Connect itemClicked signals to show docstrings
+        # self.class_selector.itemClicked.connect(self.show_class_docstring)
+        # self.method_selector.itemClicked.connect(self.show_method_docstring)
+        # self.function_selector.itemClicked.connect(self.show_function_docstring)
 
         self.class_radius_slider.setValue(int(self.visualizer.class_radius * 20))
-        font = QFont("Arial", 12)
+        font = QFont("Arial", 13)
         self.setFont(font)
         self.resize(width, height)
-
-        # Disable bounding box generation in the plotter
-        # disable_bounding_box_generation(self.plotter)
-
         return
 
     def show_class_docstring(self, item) -> None:
@@ -1390,7 +1425,7 @@ class MainWindow(QMainWindow):
 
         # If we couldn't identify the actor by name, try to identify by type
         if picked_actor_name is None:
-            logger.debug("Could not identify actor by name, trying by type")
+            logger.debug("Could not identify the actor by name, trying by type")
             # Check if it's one of our MultiBlock actors
             if actor.GetMapper() and actor.GetMapper().GetInput():
                 logger.debug("Actor has mapper and input")
@@ -1587,6 +1622,7 @@ class MainWindow(QMainWindow):
         min_bound, max_bound = self.visualizer.param.class_radius.bounds
         clamped_value = max(min_bound * 20.0, min(max_bound * 20.0, value))
         self.visualizer.class_radius = clamped_value / 20.0
+        logger.debug("Updated class radius to %f", self.visualizer.class_radius)
 
     def update_selected_classes(self) -> None:
         """
@@ -1927,9 +1963,8 @@ class MainWindow(QMainWindow):
         Reset all settings to their default values, reset the view, and set status to 'Ready'.
         """
         logger.debug("Resetting settings")
-        default_class_radius = 5.5
-        self.class_radius_slider.setValue(int(default_class_radius * 20))
-        self.visualizer.class_radius = default_class_radius
+        self.class_radius_slider.setValue(int(DEFAULT_CLASS_RADIUS * 20))
+        self.visualizer.class_radius = DEFAULT_CLASS_RADIUS
         self.class_radius_slider.update()
         QApplication.processEvents()
         self.reset_camera()
@@ -1946,7 +1981,7 @@ class MainWindow(QMainWindow):
     def cleanup_pyvista_objects(self):
         """
         Perform thorough cleanup of PyVista objects to prevent errors during exit.
-        This breaks potential circular references and ensures proper cleanup.
+        Uses pyvista.MultiBlock.clear_all_data() to efficiently clean up MultiBlock objects.
         """
         logger.debug("Performing thorough PyVista cleanup")
 
@@ -1962,14 +1997,32 @@ class MainWindow(QMainWindow):
                     logger.debug("Error closing popup: %s", e)
             self._current_popup = None
 
-        # Clear the actor_to_element dictionary and break references
+        # Clear MultiBlock objects using clear_all_data()
+        if hasattr(self, "visualizer"):
+            try:
+                # Clear all MultiBlock objects
+                for attr_name in [
+                    "class_meshes",
+                    "method_meshes",
+                    "function_meshes",
+                    "class_connection_meshes",
+                    "function_connection_meshes",
+                    "method_connection_meshes",
+                ]:
+                    if hasattr(self.visualizer, attr_name):
+                        multiblock = getattr(self.visualizer, attr_name)
+                        if multiblock is not None and hasattr(
+                            multiblock, "clear_all_data"
+                        ):
+                            logger.debug("Clearing MultiBlock data for %s", attr_name)
+                            multiblock.clear_all_data()
+                            setattr(self.visualizer, attr_name, None)
+            except Exception as e:
+                logger.debug("Error clearing MultiBlock data: %s", e)
+
+        # Clear the actor_to_element dictionary
         if hasattr(self, "visualizer") and hasattr(self.visualizer, "actor_to_element"):
             try:
-                # Break mesh references in actor_to_element
-                for mesh_id in list(self.visualizer.actor_to_element.keys()):
-                    elem_data = self.visualizer.actor_to_element[mesh_id]
-                    if "mesh" in elem_data:
-                        elem_data["mesh"] = None
                 self.visualizer.actor_to_element.clear()
             except Exception as e:
                 logger.debug("Error clearing actor_to_element: %s", e)
@@ -1977,19 +2030,6 @@ class MainWindow(QMainWindow):
         # Clear and close the plotter
         if hasattr(self, "plotter") and self.plotter is not None:
             try:
-                # Remove all actors first
-                if hasattr(self.plotter, "actors"):
-                    actor_keys = list(self.plotter.actors.keys())
-                    for actor_key in actor_keys:
-                        try:
-                            self.plotter.remove_actor(actor_key, render=False)
-                        except Exception as e:
-                            logger.debug("Error removing actor %s: %s", actor_key, e)
-
-                # Clear all MultiBlock objects
-                if hasattr(self.visualizer, "plotter"):
-                    self.visualizer.plotter = None
-
                 # Clear the plotter
                 if hasattr(self.plotter, "clear_actors"):
                     self.plotter.clear_actors()
@@ -1999,6 +2039,8 @@ class MainWindow(QMainWindow):
                     self.plotter.close()
 
                 # Set plotter to None to break references
+                if hasattr(self.visualizer, "plotter"):
+                    self.visualizer.plotter = None
                 self.plotter = None
                 self.vtk_plotter = None
             except Exception as e:
@@ -2040,6 +2082,21 @@ class MainWindow(QMainWindow):
         finally:
             sys.exit()
 
+    def show_selected_docstring(self):
+        """
+        Display the docstring of the currently selected class, method, or function.
+        """
+        selected_class_items = self.class_selector.selectedItems()
+        selected_method_items = self.method_selector.selectedItems()
+        selected_function_items = self.function_selector.selectedItems()
+
+        if selected_class_items:
+            self.show_class_docstring(selected_class_items[0])
+        elif selected_method_items:
+            self.show_method_docstring(selected_method_items[0])
+        elif selected_function_items:
+            self.show_function_docstring(selected_function_items[0])
+
 
 # class MainWindow(QMainWindow) ends here
 
@@ -2059,7 +2116,14 @@ def global_cleanup():
         try:
             # Clear any remaining references to PyVista objects
             for obj in gc.get_objects():
-                if isinstance(obj, pv.PolyData) or isinstance(obj, pv.MultiBlock):
+                if isinstance(obj, pv.MultiBlock) and hasattr(obj, "clear_all_data"):
+                    try:
+                        # Use clear_all_data() for MultiBlock objects
+                        logger.debug("Clearing MultiBlock data with clear_all_data()")
+                        obj.clear_all_data()
+                    except Exception as e:
+                        logger.debug("Error clearing MultiBlock data: %s", e)
+                elif isinstance(obj, pv.PolyData) or isinstance(obj, pv.MultiBlock):
                     try:
                         # Monkey patch the object's __del__ method to prevent errors
                         if hasattr(obj, "__del__"):
@@ -2070,7 +2134,7 @@ def global_cleanup():
                             if not attr_name.startswith("__"):
                                 try:
                                     setattr(obj, attr_name, None)
-                                    logger.info(
+                                    logger.debug(
                                         "Setting %s attribute %s to None for cleanup",
                                         obj,
                                         attr_name,
@@ -2087,9 +2151,6 @@ def global_cleanup():
             logger.debug("Error during global cleanup: %s", e)
 
 
-# Register the cleanup function with atexit
-atexit.register(global_cleanup)
-
 # Monkey patch the sys.excepthook to catch and ignore specific PyVista errors
 original_excepthook = sys.excepthook
 
@@ -2105,9 +2166,13 @@ def custom_excepthook(exc_type, exc_value, exc_traceback):
     original_excepthook(exc_type, exc_value, exc_traceback)
 
 
-sys.excepthook = custom_excepthook
+# Register the cleanup function with atexit
+atexit.register(global_cleanup)
 
-if __name__ == "__main__":
+# sys.excepthook = custom_excepthook
+
+
+def parse_arguments():
     parser = argparse.ArgumentParser(
         description="3D Visualization of Python Package Structure"
     )
@@ -2140,7 +2205,16 @@ if __name__ == "__main__":
         help="Height of the window",
         default=800,
     )
-    args = parser.parse_args()
+
+    return parser.parse_args()
+
+
+def main():
+    """
+    Main function to initialize and run the application.
+    """
+
+    args = parse_arguments()
 
     package_path = args.package_path if args.package_path else DEFAULT_REP
     save_path = (
@@ -2159,4 +2233,8 @@ if __name__ == "__main__":
 
     window.run()
 
-    # end of file
+
+if __name__ == "__main__":
+    main()
+
+# end of file

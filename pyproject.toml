@@ -6,7 +6,7 @@ authors = ["Eric G. Suchanek, Ph.D <suchanek@mac.com>"]
 license = "GPL"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.12"
 asttokens = "*"
 numpy = "*"
 panel = "*"
@@ -19,6 +19,9 @@ vtk = "^9.4.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
+
+[tool.poetry.scripts]
+pkg-visualizer = "pkg_visualizer.pkg_visualizer:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
