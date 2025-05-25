@@ -35,6 +35,8 @@
   - Click on a list entry or mesh to highlight the object and open a popup displaying its docstring (rendered via Markdown).
   - Popups are modeless (non-blocking) and display formatted docstrings with syntax highlighting.
   - Automatic zooming and highlighting of selected objects for better visibility.
+  - **Priority Handling**: If a method is selected, its docstring is displayed instead of the class docstring.
+  - Closing the popup resets the view and clears the selection.
 
 - **Camera Controls**:
   - **Reset View** button to restore the camera to the default orientation.
@@ -75,10 +77,10 @@
 
 ## Usage
 
-Run the visualization tool by specifying at least the package path. Optionally, provide an output save path.
+Run the visualization tool by specifying at least the package path. It is an entrypoint so can be run directly from the env:
 
 ```bash
-python pkg_visualizer/pkg_visualizer.py \
+pkg-visualizer \
   [--package_path /path/to/your/python/package] \
   [--save_path /desired/output/path] \
   [--width 1200] \
@@ -90,13 +92,57 @@ python pkg_visualizer/pkg_visualizer.py \
 - **--width**: (Optional) Width of the visualization window (default: 1200).
 - **--height**: (Optional) Height of the visualization window (default: 800).
 
+### Picking and interacting with the scene
+
+It's possible to pick itmes from the screen directly by hovering the mouse over the item of interest
+and either right-clicking on the object or prressing the **P** key. Picking isn't all that precise.
+When the pick succeeds the camera zooms to the object and highlights it and displays the relevent
+docstring in the docstring popup window. If you can't see the object spin the camera (click drag the mouse).
+
+### UI Integration
+
+- **PyQt5 and PyVista Integration**: The Qt-based UI is integrated with PyVista's rendering capabilities through the QtInteractor class.
+
+- **Real-time Updates**: Status messages, progress bars, and selection updates are processed through Qt's event loop with `QApplication.processEvents()` to maintain UI responsiveness.
+
+- **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
+
+## Examples
+
+The `examples` directory contains pre-rendered HTML visualizations of several popular Python projects:
+
+- Flask
+- Matplotlib
+- ProteusPy
+- Requests
+- Seaborn
+- SymPy
+- TensorFlow
+
+Open these files in any modern web browser to explore interactive 3D visualizations without having to generate them yourself.
+
+## User Interface Buttons
+
+The `pkg_visualizer` application provides an intuitive user interface with the following buttons and their respective functions:
+
+- **Visualize**: Generates or updates the 3D visualization based on the selected parameters.
+- **Reset View**: Resets the camera to the default orientation, providing a clear view of the entire package structure.
+- **Spin Package**: Animates a smooth 360° rotation of the visualization around the package center.
+- **Save View**: Saves the current visualization to a file. Supported formats include HTML, PNG, and JPG.
+- **Class Selector**: Allows users to select specific classes to include in the visualization.
+- **Method Selector**: Enables selection of specific methods. This option is disabled when "Render Methods" is unchecked.
+- **Function Selector**: Enables selection of specific functions. This option is disabled when "Render Functions" is unchecked.
+- **Checkboxes**: Toggle the rendering of functions and methods, which also enables or disables the corresponding selectors.
+- **Show Docstring**: Shows the docstring for the selected Class/Method/Function.
+
+These buttons and controls make it easy to customize and interact with the 3D visualization.
+
 ## Under the Hood
 
 This section explains the internal workings of the visualization algorithm to provide insight into how the 3D representations are created.
 
 ### Memory Management
 
-- **PyVista Patching**: Custom patches for PyVista's `PolyData.__del__` and `MultiBlock.__del__` methods to prevent errors during application exit.
 - **Global Cleanup**: Comprehensive cleanup function registered with `atexit` to ensure proper resource release.
 - **Exception Handling**: Custom exception hook to catch and handle specific PyVista/VTK errors during shutdown.
 
@@ -168,23 +214,7 @@ This section explains the internal workings of the visualization algorithm to pr
 
 - This provides a performance metric and indicates visualization complexity
 
-### UI Integration
-
-- **PyQt5 and PyVista Integration**: The Qt-based UI is integrated with PyVista's rendering capabilities through the QtInteractor class.
-
-- **Real-time Updates**: Status messages, progress bars, and selection updates are processed through Qt's event loop with `QApplication.processEvents()` to maintain UI responsiveness.
-
-- **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
-
-## Lifecycle Methods
-
-- `visualize`: Creates and displays the 3D visualization based on selected parameters.
-- `reset_camera`: Resets the camera to its default position.
-- `save_current_view`: Saves the current visualization to a file.
-- `spin_camera`: Animates a smooth 360° rotation around the package center.
-- `cleanup_pyvista_objects`: Performs thorough cleanup of PyVista objects to prevent errors during exit.
-
-## General Considerations
+### General Considerations
 
 - Large repositories (thousands of classes or functions) can take several minutes to parse and render.
 - Progress updates and adaptive detail settings help manage performance.
@@ -192,34 +222,5 @@ This section explains the internal workings of the visualization algorithm to pr
 - Safe file saving with parent directory creation ensures visualizations can be saved anywhere.
 - Automatic error handling prevents crashes when dealing with invalid paths or permissions.
 - Memory management optimizations prevent common PyVista/VTK errors during application exit.
-
-## Examples
-
-The `examples` directory contains pre-rendered HTML visualizations of several popular Python projects:
-
-- Flask
-- Matplotlib
-- ProteusPy
-- Requests
-- Seaborn
-- SymPy
-- TensorFlow
-
-Open these files in any modern web browser to explore interactive 3D visualizations without having to generate them yourself.
-
-## User Interface Buttons
-
-The `pkg_visualizer` application provides an intuitive user interface with the following buttons and their respective functions:
-
-- **Visualize**: Generates or updates the 3D visualization based on the selected parameters.
-- **Reset View**: Resets the camera to the default orientation, providing a clear view of the entire package structure.
-- **Spin Package**: Animates a smooth 360° rotation of the visualization around the package center.
-- **Save View**: Saves the current visualization to a file. Supported formats include HTML, PNG, and JPG.
-- **Class Selector**: Allows users to select specific classes to include in the visualization.
-- **Method Selector**: Enables selection of specific methods. This option is disabled when "Render Methods" is unchecked.
-- **Function Selector**: Enables selection of specific functions. This option is disabled when "Render Functions" is unchecked.
-- **Checkboxes**: Toggle the rendering of functions and methods, which also enables or disables the corresponding selectors.
-
-These buttons and controls make it easy to customize and interact with the 3D visualization.
 
 Happy visualizing! 🚀

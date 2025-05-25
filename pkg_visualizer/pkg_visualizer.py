@@ -21,7 +21,7 @@ Usage:
 Run: python pkg_visualizer.py --package_path <path_to_repo> --save_path <path_to_save>
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-21 23:03:42
+Last modified: 2025-05-24 22:43:36
 """
 
 import argparse
@@ -65,7 +65,6 @@ from rich.logging import RichHandler
 
 from pkg_visualizer.find_red_bounding_box import remove_all_red_actors
 from pkg_visualizer.utility import (
-    can_import,
     collect_elements,
     fibonacci_sphere,
     format_docstring_to_markdown,
@@ -101,18 +100,19 @@ METHOD_COLOR: str = "blue"
 METHOD_MAX_LINES = 2000
 
 FUNCTION_OBJECT_RADIUS: float = 0.1 * PACKAGE_RADIUS
-FUNCTION_RADIUS: float = 1.25 * PACKAGE_RADIUS
+FUNCTION_RADIUS: float = 1.5 * PACKAGE_RADIUS
 FUNCTION_COLOR: str = "red"
 FUNCTION_MAX_CYLINDER: int = 1000
 
-CYLINDER_RADIUS: float = 0.05
-CYLINDER_RESOLUTION: int = 16
+CYLINDER_RADIUS: float = 0.06
+CYLINDER_RESOLUTION: int = 12
 CYLINDER_COLOR: str = "gray"
-
 
 BUTTON_WIDTH: int = 110
 DEFAULT_CLASS_RADIUS: float = 20.0
-ZOOM_FACTOR: float = 5.0
+ZOOM_FACTOR: float = 10.0
+
+STEM_RADIUS: float = 0.1 * PACKAGE_RADIUS
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, handlers=[RichHandler()])
@@ -120,10 +120,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-if can_import("PyQt5") is None:
-    sys.exit("This program requires PyQt5. Install: pip install proteusPy[pyqt5]")
-
-
+# Popup window for displaying docstrings
 class DocstringPopup(QDialog):
     def __init__(self, title: str, docstring: str, parent=None, on_close_callback=None):
         """
@@ -187,6 +184,7 @@ def create_allium_visualization(
     member_radius_scale: float = 1.0,
     old_title: str = "",
     plotter: Optional[pv.Plotter] = None,
+    full: bool = False,
 ) -> Tuple[pv.Plotter, str, Dict[str, Dict[str, Union[str, object]]]]:
     """
     Create a 3D 'Allium' visualization of the package structure using PyVista.
@@ -224,14 +222,15 @@ def create_allium_visualization(
 
     # Create and position three lights
     key_light = pv.Light(
-        position=(100, 100, 100), color="white", light_type="scene light"
+        position=(100, 0, 100), color="white", light_type="scene light"
     )
     fill_light = pv.Light(
-        position=(-100, 5, 10), color="white", intensity=0.5, light_type="scene light"
+        position=(0, 100, 100), color="white", light_type="scene light"
     )
     back_light = pv.Light(
-        position=(0, -100, -100), color="white", intensity=0.3, light_type="scene light"
+        position=(0, -100, -100), color="white", light_type="scene light"
     )
+
     headlight = pv.Light(light_type="headlight", color="white", intensity=0.9)
 
     # Add lights to the plotter
@@ -274,26 +273,17 @@ def create_allium_visualization(
     viz_instance.class_meshes = pv.MultiBlock()
     viz_instance.method_meshes = pv.MultiBlock()
     viz_instance.function_meshes = pv.MultiBlock()
-    viz_instance.class_connection_meshes = (
-        pv.MultiBlock()
-    )  # MultiBlock for class connections
-    viz_instance.function_connection_meshes = (
-        pv.MultiBlock()
-    )  # MultiBlock for function connections
-    viz_instance.method_connection_meshes = (
-        pv.MultiBlock()
-    )  # MultiBlock for method connections
+    viz_instance.class_connection_meshes = pv.MultiBlock()
+    viz_instance.method_connection_meshes = pv.MultiBlock()
 
     # Create local references for easier code readability
     class_meshes = viz_instance.class_meshes
     method_meshes = viz_instance.method_meshes
     function_meshes = viz_instance.function_meshes
     class_connection_meshes = viz_instance.class_connection_meshes
-    function_connection_meshes = viz_instance.function_connection_meshes
     method_connection_meshes = viz_instance.method_connection_meshes
 
     # Render classes
-    # rprint(f"[bold green]Starting to render {num_classes} classes...[/bold green]")
     logger.debug("Starting to render %s classes...", num_classes)
     class_index = 0
 
@@ -324,19 +314,11 @@ def create_allium_visualization(
             "docstring": element.get("docstring", ""),
             "mesh": mesh,  # Store the mesh object in the value
         }
-        # Calculate distance between package center and class position
-        distance = np.linalg.norm(pos - package_center)
 
-        if num_classes < CLASS_CYLINDER_THRESHOLD:
-            # Draw cylinder for classes < CLASS_CYLINDER_THRESHOLD
-            cylinder = pv.Cylinder(
-                center=(package_center + pos) / 2,  # Midpoint between center and class
-                direction=pos - package_center,  # Direction vector
-                radius=CYLINDER_RADIUS,  # Cylinder radius
-                height=distance,  # Cylinder height = distance
-                resolution=CYLINDER_RESOLUTION,  # Number of sides
-            )
-            class_connection_meshes.append(cylinder)
+        if num_classes < CLASS_CYLINDER_THRESHOLD or full:
+            # Draw tube for classes < CLASS_CYLINDER_THRESHOLD
+            tube: pv.PolyData = pv.Tube(package_center, pos, radius=CYLINDER_RADIUS / 2)
+            class_connection_meshes.append(tube)
         elif num_classes <= CLASS_MAX_LINES:
             # Draw line for distance between 501 and 2000
             line: pv.PolyData = pv.Line(package_center, pos)
@@ -372,7 +354,6 @@ def create_allium_visualization(
 
     plotter.view_xy()
     plotter.camera.focal_point = np.array(ORIGIN)
-    # rprint("[bold green]Finished rendering classes![/bold green]")
     logger.debug("Finished rendering classes!")
 
     # Render functions !!!
@@ -390,7 +371,7 @@ def create_allium_visualization(
 
         for i, element in enumerate([e for e in elements if e["type"] == "function"]):
             pos: np.ndarray = function_positions[i]
-            if num_functions > FUNCTION_MAX_CYLINDER:
+            if num_functions > FUNCTION_MAX_CYLINDER or full:
                 mesh: pv.PolyData = pv.Cube(
                     center=pos, x_length=0.15, y_length=0.15, z_length=0.15
                 )
@@ -412,9 +393,6 @@ def create_allium_visualization(
                 "docstring": element.get("docstring", ""),
                 "mesh": mesh,  # Store the mesh object in the value
             }
-            if num_functions <= 1000:
-                line: pv.PolyData = pv.Line(package_center, pos)
-                function_connection_meshes.append(line)
 
             update_interval: int = max(1, int(num_functions * 0.10))
             if (i + 1) % update_interval == 0 or (i + 1) == num_functions:
@@ -434,16 +412,6 @@ def create_allium_visualization(
                 name="functions",
             )
 
-        # Add the function connection meshes if any exist
-        if function_connection_meshes.n_blocks > 0:
-            plotter.add_mesh(
-                function_connection_meshes,
-                color=CYLINDER_COLOR,
-                line_width=2,
-                name="function_connections",
-            )
-
-        # rprint("[bold green]Finished rendering functions![/bold green]")
         logger.debug("Finished rendering functions!")
 
     # Render methods
@@ -481,7 +449,7 @@ def create_allium_visualization(
                         "docstring": member.get("docstring", ""),
                         "mesh": method_mesh,  # Store the mesh object in the value
                     }
-                    if total_methods <= METHOD_MAX_LINES:
+                    if total_methods <= METHOD_MAX_LINES or full:
                         line: pv.PolyData = pv.Line(class_pos, method_positions[j])
                         method_connection_meshes.append(line)
                     method_count += 1
@@ -543,10 +511,6 @@ def create_allium_visualization(
     for i in range(function_meshes.n_blocks):
         total_triangles += function_meshes[i].n_faces_strict
 
-    # Update triangle count for function connection meshes
-    for i in range(function_connection_meshes.n_blocks):
-        total_triangles += function_connection_meshes[i].n_faces_strict
-
     # Update triangle count for method connection meshes
     for i in range(method_connection_meshes.n_blocks):
         total_triangles += method_connection_meshes[i].n_faces_strict
@@ -563,6 +527,13 @@ def create_allium_visualization(
     title_text: str = (
         f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions} | Faces: {total_triangles}"
     )
+
+    if full:
+        # Add a green cylinder stem if 'full' option is selected
+        stem = pv.Cylinder(
+            center=(0, -50, 0), direction=(0, -1, 0), radius=STEM_RADIUS, height=100
+        )
+        plotter.add_mesh(stem, color="green", name="stem")
 
     plotter.render()
     viz_instance.status = "Scene generation complete."
@@ -611,6 +582,8 @@ class PackageVisualizer(param.Parameterized):
     )
     include_functions: bool = param.Boolean(default=False, doc="Include functions")
     render_methods: bool = param.Boolean(default=True, doc="Render methods")
+    render_classes: bool = param.Boolean(default=True, doc="Render classes")
+    render_connections: bool = param.Boolean(default=True, doc="Render connections")
     status: str = param.String(default="Ready", doc="Status")
     num_classes: int = param.Integer(default=0, doc="Number of classes in the package")
     num_functions: int = param.Integer(
@@ -619,6 +592,10 @@ class PackageVisualizer(param.Parameterized):
     num_methods: int = param.Integer(default=0, doc="Number of methods in the package")
     num_faces: int = param.Integer(
         default=0, doc="Number of faces (triangles) in the visualization"
+    )
+    full: bool = param.Boolean(
+        default=False,
+        doc="Render the full package visualization with all elements",
     )
     # MultiBlock objects for visualization
     class_meshes: pv.MultiBlock = None
@@ -827,6 +804,7 @@ class PackageVisualizer(param.Parameterized):
                 self.member_radius_scale,
                 self.old_title,
                 self.plotter,
+                self.full,
             )
             self.old_title = title_text
             self.window_title = title_text
@@ -848,6 +826,7 @@ class MainWindow(QMainWindow):
         save_path: str = DEFAULT_PACKAGE_NAME,
         width: int = 1200,
         height: int = 800,
+        full: bool = False,
     ) -> None:
         """
         Initialize the main window for the visualization application.
@@ -866,12 +845,17 @@ class MainWindow(QMainWindow):
         self.current_frame = 0
         self.spin_count = 0
         self.status = "Ready"
+        self.full = full
+        self.setGeometry(100, 100, width, height)
 
         # Create the PackageVisualizer internally
         set_pyvista_theme("auto", verbose=True)
         self.vtk_plotter: QtInteractor = QtInteractor(self, theme=pv._GlobalTheme())
         self.visualizer: PackageVisualizer = PackageVisualizer(
-            plotter=self.vtk_plotter, package_path=package_path, save_path=save_path
+            plotter=self.vtk_plotter,
+            package_path=package_path,
+            save_path=save_path,
+            full=full,
         )
 
         self.setWindowTitle(self.visualizer.window_title)
@@ -1004,13 +988,17 @@ class MainWindow(QMainWindow):
         # Create a horizontal layout for the checkboxes
         checkbox_layout = QHBoxLayout()
 
-        self.include_functions_checkbox: QCheckBox = QCheckBox("Render Functions")
+        self.include_functions_checkbox: QCheckBox = QCheckBox("Functions")
         self.include_functions_checkbox.setChecked(self.visualizer.include_functions)
         checkbox_layout.addWidget(self.include_functions_checkbox)
 
-        self.render_methods_checkbox: QCheckBox = QCheckBox("Render Methods")
+        self.render_methods_checkbox: QCheckBox = QCheckBox("Methods")
         self.render_methods_checkbox.setChecked(self.visualizer.render_methods)
         checkbox_layout.addWidget(self.render_methods_checkbox)
+
+        self.render_connections_checkbox: QCheckBox = QCheckBox("Connections")
+        self.render_connections_checkbox.setChecked(self.visualizer.render_connections)
+        checkbox_layout.addWidget(self.render_connections_checkbox)
 
         # Add the checkbox layout to the control panel
         control_panel.addLayout(checkbox_layout)
@@ -1050,7 +1038,8 @@ class MainWindow(QMainWindow):
 
         self.save_button: QPushButton = QPushButton("Save View")
         self.save_button.setFixedWidth(BUTTON_WIDTH)
-        button_row.addWidget(self.save_button)
+        # !!!
+        button_layout.addWidget(self.save_button)
 
         self.reset_view_button: QPushButton = QPushButton("Reset View")
         self.reset_view_button.setFixedWidth(BUTTON_WIDTH)
@@ -1147,6 +1136,9 @@ class MainWindow(QMainWindow):
             self.update_include_functions
         )
         self.render_methods_checkbox.stateChanged.connect(self.update_render_methods)
+        self.render_connections_checkbox.stateChanged.connect(
+            self.update_render_connections
+        )
         self.visualize_button.clicked.connect(self.on_visualize_clicked)
         self.reset_settings_button.clicked.connect(self.reset_settings)
         self.status_changed.connect(self.update_status_display)
@@ -1714,6 +1706,13 @@ class MainWindow(QMainWindow):
         self.visualizer.render_methods = state == Qt.Checked
         self.method_selector.setEnabled(self.visualizer.render_methods)
 
+    def update_render_connections(self, state: int) -> None:
+        """
+        Update the render connections flag based on checkbox state and enable/disable the connections selector.
+        """
+        self.visualizer.render_connections = state == Qt.Checked
+        self.connection_selector.setEnabled(self.visualizer.render_connections)
+
     def on_visualize_clicked(self) -> None:
         """
         Handle the visualize button click event.
@@ -1825,7 +1824,6 @@ class MainWindow(QMainWindow):
         plotter = self.visualizer.plotter
 
         if plotter:
-
             self.vtk_plotter.view_xy(render=False)
             plotter.camera.focal_point = [0, 0, 0]
             self.visualizer.status = "Ready: View reset to default."
@@ -2159,6 +2157,12 @@ def parse_arguments():
         help="Height of the window",
         default=800,
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Enable full rendering mode: always render class connectors and do not reduce geometric complexity.",
+    )
 
     return parser.parse_args()
 
@@ -2183,7 +2187,16 @@ def main():
         save_path=save_path,
         width=args.width,
         height=args.height,
+        full=args.full,
     )
+
+    if args.full:
+        logger.info(
+            "Full rendering mode enabled: Class connectors will always be rendered, and geometric complexity will not be reduced."
+        )
+        # Override rendering settings for full mode
+        window.visualizer.render_methods = True
+        window.visualizer.include_functions = True
 
     window.run()
 
