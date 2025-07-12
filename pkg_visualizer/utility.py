@@ -102,7 +102,11 @@ def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]
     elements: List[Dict[str, Union[str, int, List[str]]]] = []
     seen_classes: set = set()
     seen_functions: set = set()
-    for root, _, files in os.walk(repo_path):
+    for root, dirs, files in os.walk(repo_path):
+        # Skip .venv directory
+        if '.venv' in dirs:
+            dirs.remove('.venv')  # This modifies dirs in-place to prevent os.walk from traversing into .venv
+            
         for file in files:
             if file.endswith(".py"):
                 file_elements: List[Dict[str, Union[str, int, List[str]]]] = parse_file(
