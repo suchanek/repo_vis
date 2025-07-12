@@ -80,7 +80,7 @@
 Run the visualization tool by specifying at least the package path. It is an entrypoint so can be run directly from the env:
 
 ```bash
-pkg-visualizer \
+poetry run pkg-visualizer \
   [--package_path /path/to/your/python/package] \
   [--save_path /desired/output/path] \
   [--width 1200] \
