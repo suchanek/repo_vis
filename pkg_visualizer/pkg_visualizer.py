@@ -38,6 +38,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import param
 import pyvista as pv
+from .find_red_bounding_box import remove_all_red_actors
 from markdown import markdown
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -62,9 +63,7 @@ from pyvistaqt import QtInteractor
 
 # from rich import print as rprint
 from rich.logging import RichHandler
-
-from pkg_visualizer.find_red_bounding_box import remove_all_red_actors
-from pkg_visualizer.utility import (
+from .utility import (
     collect_elements,
     fibonacci_sphere,
     format_docstring_to_markdown,
@@ -108,6 +107,7 @@ CYLINDER_RADIUS: float = 0.06
 CYLINDER_RESOLUTION: int = 12
 CYLINDER_COLOR: str = "gray"
 
+CONTROL_PANEL_WIDTH: int = 200
 BUTTON_WIDTH: int = 110
 DEFAULT_CLASS_RADIUS: float = 20.0
 ZOOM_FACTOR: float = 10.0
@@ -221,14 +221,10 @@ def create_allium_visualization(
     plotter.add_axes()
 
     # Create and position three lights
-    key_light = pv.Light(
-        position=(100, 0, 100), color="white", light_type="scene light"
-    )
-    fill_light = pv.Light(
-        position=(0, 100, 100), color="white", light_type="scene light"
-    )
+    key_light = pv.Light(position=(0, 0, 100), color="white", light_type="scene light")
+    fill_light = pv.Light(position=(0, 100, 0), color="white", light_type="scene light")
     back_light = pv.Light(
-        position=(0, -100, -100), color="white", light_type="scene light"
+        position=(0, 0, -100), color="white", light_type="scene light"
     )
 
     headlight = pv.Light(light_type="headlight", color="white", intensity=0.9)
@@ -238,7 +234,7 @@ def create_allium_visualization(
     plotter.add_light(fill_light)
     plotter.add_light(back_light)
 
-    plotter.add_light(headlight)
+    # plotter.add_light(headlight)
 
     package_center: np.ndarray = np.array(ORIGIN)
     package_name: str = Path(save_path).stem
@@ -343,8 +339,8 @@ def create_allium_visualization(
             name="classes",
         )
 
-    # Add the class connection meshes if any exist
-    if class_connection_meshes.n_blocks > 0:
+    # Add the class connection meshes if any exist and connections should be rendered
+    if class_connection_meshes.n_blocks > 0 and viz_instance.render_connections:
         plotter.add_mesh(
             class_connection_meshes,
             color=CYLINDER_COLOR,
@@ -477,8 +473,8 @@ def create_allium_visualization(
                 name="methods",
             )
 
-        # Add the method connection meshes if any exist
-        if method_connection_meshes.n_blocks > 0:
+        # Add the method connection meshes if any exist and connections should be rendered
+        if method_connection_meshes.n_blocks > 0 and viz_instance.render_connections:
             plotter.add_mesh(
                 method_connection_meshes,
                 color=METHOD_COLOR,
@@ -614,6 +610,10 @@ class PackageVisualizer(param.Parameterized):
         self.elements: List[Dict[str, Union[str, int, List[str]]]] = []
         self.actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
         self.update_classes()
+        # Override rendering settings for full mode
+        if self.param.full:
+            self.render_methods = True
+            self.include_functions = True
 
     def set_plotter(self, plotter: pv.Plotter) -> None:
         self.plotter = plotter
@@ -673,11 +673,11 @@ class PackageVisualizer(param.Parameterized):
                 return True
         else:
             self.reset_elements()
-            self.status = "Error: Package path does not exist!"
             self.window_title = DEFAULT_TITLE
             # Clear the plotter to remove old meshes when an invalid path is entered
             if self.plotter and hasattr(self.plotter, "clear_actors"):
                 self.plotter.clear_actors()
+            self.status = "Error: Package path does not exist!"
             return False
 
     def reset_elements(self) -> None:
@@ -1068,12 +1068,17 @@ class MainWindow(QMainWindow):
         self.plotter = self.vtk_plotter
 
         vis_panel.addWidget(self.vtk_plotter, stretch=1)
+        # Add stretch to push the button row to the bottom (align with left panel buttons)
+        vis_panel.addStretch()
         vis_panel.addLayout(button_row)
 
         # Create widgets to hold the layouts
         control_widget: QWidget = QWidget()
         control_widget.setLayout(control_panel)
-        control_widget.setFixedWidth(375)
+        control_widget.setFixedWidth(CONTROL_PANEL_WIDTH)  # Set fixed width
+        # control_widget.setSizePolicy(
+        #    QSizePolicy.Preferred, QSizePolicy.MinimumExpanding
+        # )  # Allow vertical stretch
 
         vis_widget: QWidget = QWidget()
         vis_widget.setLayout(vis_panel)
@@ -1616,7 +1621,7 @@ class MainWindow(QMainWindow):
             for e in self.visualizer.elements:
                 if e["type"] == "class" and "methods" in e:
                     method_names.extend(
-                        [f"{e['name']}.{method['name']}" for method in e["methods"]]
+                        [f"{e['name']}.{method['name']}"] for method in e["methods"]
                     )
             self.visualizer.available_methods = method_names
 
@@ -1708,10 +1713,11 @@ class MainWindow(QMainWindow):
 
     def update_render_connections(self, state: int) -> None:
         """
-        Update the render connections flag based on checkbox state and enable/disable the connections selector.
+        Update the render connections flag based on checkbox state and trigger a re-render.
         """
         self.visualizer.render_connections = state == Qt.Checked
-        self.connection_selector.setEnabled(self.visualizer.render_connections)
+        # Trigger a re-render to apply the change
+        # self.on_visualize_clicked()
 
     def on_visualize_clicked(self) -> None:
         """
@@ -1764,7 +1770,7 @@ class MainWindow(QMainWindow):
                 time.sleep(0.5)
                 status = "Ready"
                 self.status_display.setText(
-                    f"<span style='color:#006600; font-size:14px;'><b>⚡ {status}</b></span>"
+                    f"<span style='color:#006600; font-size:14px;'><b>⚡ {status} ⚡</b></span>"
                 )
 
             case status if "Found" in status:
@@ -1801,7 +1807,11 @@ class MainWindow(QMainWindow):
         """
         self.method_selector.clear()
         for method_name in self.visualizer.available_methods:
-            self.method_selector.addItem(method_name)
+            if isinstance(method_name, list):
+                for name in method_name:
+                    self.method_selector.addItem(name)
+            else:
+                self.method_selector.addItem(method_name)
 
     def update_function_selector(self, event: param.Event) -> None:
         """
@@ -1971,7 +1981,7 @@ class MainWindow(QMainWindow):
         for e in self.visualizer.elements:
             if e["type"] == "class" and "methods" in e:
                 method_names.extend(
-                    [f"{e['name']}.{method['name']}" for method in e["methods"]]
+                    [f"{e['name']}.{method['name']}"] for method in e["methods"]
                 )
         self.visualizer.available_methods = method_names
         self.update_method_selector()
@@ -1985,6 +1995,8 @@ class MainWindow(QMainWindow):
         Uses pyvista.MultiBlock.clear_all_data() to efficiently clean up MultiBlock objects.
         """
         logger.debug("Performing thorough PyVista cleanup")
+        self.status_changed.emit("Cleaning up PyVista objects...")
+        QApplication.processEvents()
 
         # Close any open popups
         if hasattr(self, "_current_popup") and self._current_popup is not None:
@@ -2078,6 +2090,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error("Error running the application: %s", e)
             self.visualizer.status = f"Error running the application: {str(e)}"
+
             self.status_changed.emit(self.visualizer.status)
             QApplication.processEvents()
         finally:
@@ -2182,6 +2195,8 @@ def main():
     )
 
     app: QApplication = QApplication([])
+    app.setApplicationName("PkgVisualizer")
+
     window: MainWindow = MainWindow(
         package_path=package_path,
         save_path=save_path,
