@@ -1,0 +1,27 @@
+cff-version: "1.2.0"
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "pkg_visualizer: 3-D Visualization of Python Packages"
+abstract: >
+  pkg_visualizer parses a Python package's abstract syntax tree and renders
+  its classes, methods and functions as an interactive 3-D scene built with
+  PyVista and PyQt5. Elements can be filtered, picked to show their
+  docstrings, and exported to HTML, PNG or JPG, from the GUI or headless.
+  A multi-arch container image serves the GUI to a browser through noVNC.
+authors:
+  - family-names: Suchanek
+    given-names: "Eric G., PhD"
+    orcid: "https://orcid.org/0009-0009-0891-1507"
+    affiliation: "Flux-Frontiers"
+version: "0.2.0"
+date-released: "2026-09-24"
+license: GPL-3.0-only
+repository-code: "https://github.com/suchanek/repo_vis"
+url: "https://github.com/suchanek/repo_vis"
+keywords:
+  - visualization
+  - code-analysis
+  - python
+  - ast
+  - pyvista
+  - 3d

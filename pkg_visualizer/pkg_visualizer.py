@@ -21,7 +21,6 @@ Usage:
 Run: python pkg_visualizer.py --package_path <path_to_repo> --save_path <path_to_save>
 
 Author: Eric G. Suchanek, PhD
-Last modified: 2025-05-24 22:43:36
 """
 
 import argparse
@@ -39,6 +38,11 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import param
 import pyvista as pv
+
+# pyvista >= 0.49 loads its HTML exporter lazily from BasePlotter.__getattr__,
+# which QtInteractor's Qt base class shadows; importing trame_pyvista registers
+# it up front so export_html works on the GUI plotter too.
+import trame_pyvista  # noqa: F401
 from markdown import markdown
 
 from .find_red_bounding_box import remove_all_red_actors
@@ -79,9 +83,8 @@ from .utility import (
 )
 
 # Constants
-__version__: str = "0.1.0"
+__version__: str = "0.2.0"
 __author__: str = "Eric G. Suchanek, PhD"
-__revised__: str = "2025-05-23"
 
 DEFAULT_TITLE: str = f"Python Package 3D Visualization v{__version__} {__author__}"
 
@@ -222,7 +225,6 @@ def create_allium_visualization(
     mesh_id_counter = 0  # Counter to generate unique IDs for meshes
     plotter.clear_actors()
     plotter.remove_all_lights()
-    plotter.renderer_layer = 0
     plotter.disable_parallel_projection()
     plotter.enable_anti_aliasing("msaa")
     plotter.add_axes()
@@ -320,7 +322,9 @@ def create_allium_visualization(
 
         if num_classes < CLASS_CYLINDER_THRESHOLD or full:
             # Draw tube for classes < CLASS_CYLINDER_THRESHOLD
-            tube: pv.PolyData = pv.Tube(package_center, pos, radius=CYLINDER_RADIUS / 2)
+            tube: pv.PolyData = pv.Tube(
+                pointa=package_center, pointb=pos, radius=CYLINDER_RADIUS / 2
+            )
             class_connection_meshes.append(tube)
         elif num_classes <= CLASS_MAX_LINES:
             # Draw line for distance between 501 and 2000
@@ -504,23 +508,23 @@ def create_allium_visualization(
 
     # Update triangle count for class meshes
     for i in range(class_meshes.n_blocks):
-        total_triangles += class_meshes[i].n_faces_strict
+        total_triangles += class_meshes[i].n_faces
 
     # Update triangle count for class connection meshes
     for i in range(class_connection_meshes.n_blocks):
-        total_triangles += class_connection_meshes[i].n_faces_strict
+        total_triangles += class_connection_meshes[i].n_faces
 
     # Update triangle count for function meshes
     for i in range(function_meshes.n_blocks):
-        total_triangles += function_meshes[i].n_faces_strict
+        total_triangles += function_meshes[i].n_faces
 
     # Update triangle count for method connection meshes
     for i in range(method_connection_meshes.n_blocks):
-        total_triangles += method_connection_meshes[i].n_faces_strict
+        total_triangles += method_connection_meshes[i].n_faces
 
     # Update triangle count for method meshes
     for i in range(method_meshes.n_blocks):
-        total_triangles += method_meshes[i].n_faces_strict
+        total_triangles += method_meshes[i].n_faces
 
     logger.debug("Total number of triangles in the visualization: %d", total_triangles)
 
@@ -528,7 +532,7 @@ def create_allium_visualization(
     viz_instance.num_faces = total_triangles
 
     title_text: str = (
-        f"3D Visualization: {package_name} | Classes: {num_classes} | Methods: {num_methods} | Functions: {num_functions} | Faces: {total_triangles}"
+        f"3D Visualization: {package_name} - Classes: {num_classes} - Methods: {num_methods} - Functions: {num_functions} - Faces: {total_triangles}"
     )
 
     if full:

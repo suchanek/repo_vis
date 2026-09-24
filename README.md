@@ -1,10 +1,28 @@
-# pkg_visualizer
+<p align="center">
+  <img src="examples/seaborn_alium.png" alt="The seaborn package rendered by pkg_visualizer as an allium: classes, methods and functions on spheres around the package core" width="360"/>
+</p>
+
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/suchanek/repo_vis/releases)
+[![Poetry](https://img.shields.io/endpoint?url=https://python-poetry.org/badge/v0.json)](https://python-poetry.org/)
+[![Docker](https://img.shields.io/badge/docker-egsuchanek%2Fpkg--visualizer-blue.svg)](https://hub.docker.com/r/egsuchanek/pkg-visualizer)
+
+# pkg_visualizer -- 3-D Visualization of Python Packages
+
+**pkg_visualizer renders the classes, methods and functions of a Python package as an interactive 3-D scene you can explore, pick, and export.**
 
 `pkg_visualizer` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
-**Version:** 0.1.1  
-**Last Updated:** 2026-09-24  
-**Author:** Eric G. Suchanek, PhD
+It runs directly on macOS and Linux, or in a container under Docker or Apple's `container` tool, with the GUI served to a browser.
+
+*Author: Eric G. Suchanek, PhD -- Flux-Frontiers, Liberty TWP, OH*
+
+---
+
+## Related projects
+
+The 3-D viewer in [PyCodeKG](https://github.com/Flux-Frontiers/pycode_kg) (`pycodekg viz3d`) is adapted from this application's window layout, picking and docstring popups, and draws the same package-as-allium picture from a code knowledge graph instead of a direct AST walk.
 
 ## Features
 
@@ -56,7 +74,7 @@
 
 ## Installation
 
-Requires Python 3.12 or later. There are two ways to run it: installed directly on your machine, or in Docker (see [Docker](#docker)).
+Requires Python 3.12 or later. There are two ways to run it: installed directly on your machine, or in a container under Docker or Apple `container` (see [Containers](#containers)).
 
 ### Direct install with Poetry
 
@@ -97,7 +115,7 @@ poetry run pkg-visualizer --headless --package_path /path/to/package --save_path
 poetry run pkg-visualizer --headless --full --package_path /path/to/package --save_path out/mypkg.png
 ```
 
-Without a suffix the output is HTML. This works on macOS and on Linux desktops. On a Linux machine with no display, run it under `xvfb-run`, or use the Docker image.
+Without a suffix the output is HTML. This works on macOS and on Linux desktops. On a Linux machine with no display, run it under `xvfb-run`, or use the container image.
 
 ### Command-line options
 
@@ -126,62 +144,66 @@ docstring in the docstring popup window. If you can't see the object spin the ca
 
 - **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
 
-## Docker
+## Containers
 
 The image runs the same two modes as a direct install. By default it runs the GUI on a virtual display and serves it to your browser with noVNC. With `--headless` it writes one file and exits. Mount the package to visualize at `/pkg` (read-only is fine) and an output directory at `/out`.
 
-The image is published on Docker Hub as [`egsuchanek/pkg-visualizer`](https://hub.docker.com/r/egsuchanek/pkg-visualizer).
+The image is multi-arch (`linux/amd64` and `linux/arm64`) and runs natively on Apple Silicon under either Docker or Apple's [`container`](https://github.com/apple/container) tool. It is published on Docker Hub as [`egsuchanek/pkg-visualizer`](https://hub.docker.com/r/egsuchanek/pkg-visualizer).
 
-### Apple Silicon
+### With make
 
-The image is `linux/amd64` because PyQt5 publishes Linux wheels for x86_64 only. In Docker Desktop, turn on **Settings > General > Use Rosetta for x86_64/amd64 emulation on Apple Silicon**. Under the default QEMU emulation, rendering aborts with `LLVM ERROR: 64-bit code requested on a subtarget that doesn't support it`.
-
-### Get the image
+The `Makefile` wraps both runtimes. `RUNTIME=docker` is the default; `RUNTIME=apple` uses Apple's `container` CLI (Apple Silicon, macOS 26, CLI 1.1 or later) and starts its services if needed.
 
 ```bash
-docker pull --platform linux/amd64 egsuchanek/pkg-visualizer
+make build                                   # build egsuchanek/pkg-visualizer:latest
+make gui PKG=/path/to/package                # GUI at http://localhost:6080
+make export PKG=/path/to/package             # writes out/<package>.html
+make export PKG=/path/to/package ARGS="--full -s /out/pkg.png"
+make logs                                    # follow the GUI container's logs
+make stop                                    # remove the GUI container
+
+make gui RUNTIME=apple PKG=/path/to/package  # same targets under Apple container
 ```
 
-Or build it from the repository root:
-
-```bash
-docker build --platform linux/amd64 -t egsuchanek/pkg-visualizer .
-```
+`PKG` defaults to this project's `pkg_visualizer` directory and `OUT` to `./out`. The output name comes from the last component of `PKG`. Apple runs each container in its own VM; `MEM=4g` raises its memory from the default 2g. `make push` builds both architectures with `docker buildx` and pushes them to Docker Hub.
 
 ### GUI in the browser
 
 ```bash
-docker run --rm -it --platform linux/amd64 -p 127.0.0.1:6080:6080 \
+docker run --rm -it -p 127.0.0.1:6080:6080 -e PKG_NAME=mypkg \
   -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
   egsuchanek/pkg-visualizer
 ```
 
-Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and click **Visualize Package**. **Save View** writes into `/out`, which is `./out` on the host. The **Save Path** box starts as `PKG_NAME` (add `-e PKG_NAME=mypkg`; the default is `package`). Press Ctrl-C in the terminal to stop the container.
+Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and click **Visualize Package**. **Save View** writes into `/out`, which is `./out` on the host. The **Save Path** box starts as `PKG_NAME`; the container cannot see the host directory name, so without it the box reads `package`. Press Ctrl-C in the terminal to stop the container.
+
+For Apple `container`, replace `docker run --rm -it` with `container run --rm -it --memory 2g`; the other options are the same.
 
 ### Headless export
 
 ```bash
-docker run --rm --platform linux/amd64 -e PKG_NAME=mypkg \
+docker run --rm -e PKG_NAME=mypkg \
   -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
   egsuchanek/pkg-visualizer --headless
 ```
 
-This writes `out/mypkg.html`. The container cannot see the host directory name, so `PKG_NAME` sets the output name; without it the file is `out/package.html`. For an image, add `-s /out/mypkg.png`. Other `pkg-visualizer` options, such as `--full`, go after the image name.
+This writes `out/mypkg.html`. For an image, add `-s /out/mypkg.png`. Other `pkg-visualizer` options, such as `--full` or `-e /out/elements.json`, go after the image name.
 
 ### Docker Compose
 
-`docker/docker-compose.yml` runs the GUI. From the repository root:
+`docker/docker-compose.yml` runs the GUI under Docker. From the repository root:
 
 ```bash
-PKG=/path/to/package docker compose -f docker/docker-compose.yml up
+PKG=/path/to/package PKG_NAME=mypkg docker compose -f docker/docker-compose.yml up
 ```
 
-`PKG` defaults to this project's `pkg_visualizer` directory. Saved files go to `docker/out` unless you set `OUT`.
+`PKG` defaults to this project's `pkg_visualizer` directory. Saved files go to `docker/out` unless you set `OUT`. Apple `container` has no compose; use `make gui RUNTIME=apple`.
 
 ### Notes
 
 - The VNC server has no password, so port 6080 is published on `127.0.0.1` only.
 - The virtual screen is 1920x1200. Change it with `-e SCREEN_GEOMETRY=2560x1440x24`.
+- The image installs from the `pyproject.toml` version ranges rather than `poetry.lock`, and takes PyQt5 from Debian's `python3-pyqt5` because PyQt5 has no Linux arm64 wheels.
 
 ## Examples
 
@@ -301,5 +323,29 @@ This section explains the internal workings of the visualization algorithm to pr
 - Safe file saving with parent directory creation ensures visualizations can be saved anywhere.
 - Automatic error handling prevents crashes when dealing with invalid paths or permissions.
 - Memory management optimizations prevent common PyVista/VTK errors during application exit.
+
+---
+
+## Citation
+
+If you use pkg_visualizer in your research or project, please cite it. The metadata is also in [CITATION.cff](CITATION.cff).
+
+> Suchanek, E. G. (2026). *pkg_visualizer: 3-D Visualization of Python Packages* (Version 0.2.0) [Software]. https://github.com/suchanek/repo_vis
+
+```bibtex
+@software{suchanek_pkg_visualizer,
+  author    = {Suchanek, Eric G.},
+  title     = {{pkg\_visualizer}: 3-D Visualization of Python Packages},
+  version   = {0.2.0},
+  year      = {2026},
+  url       = {https://github.com/suchanek/repo_vis},
+}
+```
+
+---
+
+## License
+
+[GNU General Public License v3.0](LICENSE) (GPL-3.0-only).
 
 Happy visualizing! 🚀

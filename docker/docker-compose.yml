@@ -9,7 +9,6 @@ services:
       context: ..
       dockerfile: Dockerfile
     image: egsuchanek/pkg-visualizer:latest
-    platform: linux/amd64
     ports:
       - "127.0.0.1:6080:6080"
     environment:

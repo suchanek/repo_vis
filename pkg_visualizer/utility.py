@@ -16,7 +16,6 @@ Key Features:
 - Format Python docstrings in :param: style to Markdown.
 
 Author: Eric G. Suchanek, PhD
-Last Modified: 2025-05-24 18:53:10
 """
 
 import ast
