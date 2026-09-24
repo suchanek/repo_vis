@@ -617,6 +617,10 @@ class PackageVisualizer(param.Parameterized):
         self.elements: List[Dict[str, Union[str, int, List[str]]]] = []
         self.actor_to_element: Dict[str, Dict[str, Union[str, object]]] = {}
         self.update_classes()
+        # update_classes() resets save_path to the package name; keep an
+        # explicit one from the caller (e.g. --save_path).
+        if params.get("save_path"):
+            self.save_path = params["save_path"]
         # Override rendering settings for full mode
         if self.param.full:
             self.render_methods = True
@@ -2201,8 +2205,30 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def save_elements(
+    elements: List[Dict[str, Union[str, int, List[str]]]], path: str
+) -> None:
+    """
+    Write the parsed package elements to a JSON file.
+
+    :param elements: Elements collected from the package.
+    :param path: Output JSON file.
+    """
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(elements, f, indent=2, default=str)
+        logger.info("Elements saved to %s", path)
+    except OSError as e:
+        logger.error("Failed to save elements to %s: %s", path, e)
+
+
 def run_headless(
-    package_path: str, save_path: str, width: int, height: int, full: bool
+    package_path: str,
+    save_path: str,
+    width: int,
+    height: int,
+    full: bool,
+    elements_path: Optional[str] = None,
 ) -> int:
     """
     Build the visualization off-screen and write it to a file.
@@ -2212,6 +2238,7 @@ def run_headless(
     :param width: Width of the render window in pixels.
     :param height: Height of the render window in pixels.
     :param full: Render in full mode (methods, functions and connectors).
+    :param elements_path: Optional JSON file for the parsed elements.
     :return: Process exit code, 0 on success.
     """
     out = Path(save_path)
@@ -2228,6 +2255,8 @@ def run_headless(
     if not visualizer.elements:
         logger.error("%s", visualizer.status)
         return 1
+    if elements_path:
+        save_elements(visualizer.elements, elements_path)
     if full:
         visualizer.render_methods = True
         visualizer.include_functions = True
@@ -2267,7 +2296,14 @@ def main():
 
     if args.headless:
         sys.exit(
-            run_headless(package_path, save_path, args.width, args.height, args.full)
+            run_headless(
+                package_path,
+                save_path,
+                args.width,
+                args.height,
+                args.full,
+                args.save_elements,
+            )
         )
 
     app: QApplication = QApplication([])
@@ -2290,12 +2326,7 @@ def main():
         window.visualizer.include_functions = True
 
     if args.save_elements:
-        try:
-            with open(args.save_elements, "w", encoding="utf-8") as f:
-                json.dump(window.visualizer.elements, f, indent=2, default=str)
-            logger.info("Elements saved to %s", args.save_elements)
-        except OSError as e:
-            logger.error("Failed to save elements to %s: %s", args.save_elements, e)
+        save_elements(window.visualizer.elements, args.save_elements)
 
     window.run()
 

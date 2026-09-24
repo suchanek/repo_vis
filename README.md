@@ -3,7 +3,7 @@
 `pkg_visualizer` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
 **Version:** 0.1.1  
-**Last Updated:** 2025-05-12  
+**Last Updated:** 2026-09-24  
 **Author:** Eric G. Suchanek, PhD
 
 ## Features
@@ -56,80 +56,60 @@
 
 ## Installation
 
-1. Clone the repository and navigate into it:
+Requires Python 3.12 or later. There are two ways to run it: installed directly on your machine, or in Docker (see [Docker](#docker)).
 
-   ```bash
-   git clone https://github.com/suchanek/repo_vis
-   cd repo_vis
-   ```
+### Direct install with Poetry
 
-2. Install dependencies (via Poetry):
+```bash
+git clone https://github.com/suchanek/repo_vis
+cd repo_vis
+poetry install
+```
 
-   ```bash
-   poetry install
-   ```
+This installs two equivalent commands, `pkg-visualizer` and `repovis`. Run them with `poetry run`, or activate the environment first with `eval $(poetry env activate)`.
 
-3. Activate the virtual environment:
+### Direct install with pip
 
-   ```bash
-   source .venv/bin/activate
-   ```
+The project uses standard PEP 621 metadata, so pip can install it from the repository:
+
+```bash
+pip install git+https://github.com/suchanek/repo_vis
+```
 
 ## Usage
 
-Run the visualization tool by specifying at least the package path. It is an entrypoint so can be run directly from the env:
+### GUI
 
 ```bash
-poetry run pkg-visualizer \
-  [--package_path /path/to/your/python/package] \
-  [--save_path /desired/output/path] \
-  [--width 1200] \
-  [--height 800]
+poetry run pkg-visualizer --package_path /path/to/your/python/package
 ```
 
-- **--package_path**: (Optional) Path to the root of the Python package to visualize. Defaults to my personal repo.
-- **--save_path**: (Optional) Base save path (without extension). The tool will append `.html`, `.png`, or `.jpg` depending on the chosen format.
-- **--width**: (Optional) Width of the visualization window (default: 1200).
-- **--height**: (Optional) Height of the visualization window (default: 800).
-- **--full**: (Optional) Render methods, functions and class connectors, and draw the stem.
-- **--save_elements**: (Optional) Write the parsed classes, methods and functions to a JSON file.
-- **--headless**: (Optional) Render off-screen, write the file named by `--save_path`, and exit without opening a window. The suffix (`.html`, `.png`, `.jpg`) selects the format; the default is HTML.
+The window opens with the package parsed and the selectors filled in. Click **Visualize Package** to build the scene. With no `--package_path`, it visualizes `./pkg_visualizer` relative to the current directory, which is this project's own source when run from the repository root.
 
-## Docker
+**Save View** writes to the path in the **Save Path** box, in the format chosen under **Save Format**. The box starts as `--save_path`, or the package directory name if that isn't given. Loading a different package from the **Package Path** box resets it to the new package's name.
 
-The image runs the GUI on a virtual display and serves it to the browser with noVNC, or renders a file with `--headless`. Mount the package to visualize at `/pkg` and an output directory at `/out`.
+### Headless export
 
-The image is `linux/amd64` because PyQt5 publishes Linux wheels for x86_64 only. On Apple Silicon, turn on **Settings > General > Use Rosetta for x86_64/amd64 emulation** in Docker Desktop; under QEMU emulation the Mesa renderer aborts with `LLVM ERROR: 64-bit code requested on a subtarget that doesn't support it`.
-
-Build from the repository root:
+`--headless` builds the scene off-screen, writes one file, and exits without opening a window. The suffix of `--save_path` selects the format:
 
 ```bash
-docker build --platform linux/amd64 -t pkg-visualizer .
+poetry run pkg-visualizer --headless --package_path /path/to/package --save_path out/mypkg.html
+poetry run pkg-visualizer --headless --full --package_path /path/to/package --save_path out/mypkg.png
 ```
 
-GUI in the browser, then open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale>:
+Without a suffix the output is HTML. This works on macOS and on Linux desktops. On a Linux machine with no display, run it under `xvfb-run`, or use the Docker image.
 
-```bash
-docker run --rm -it --platform linux/amd64 -p 127.0.0.1:6080:6080 \
-  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
-  pkg-visualizer
-```
+### Command-line options
 
-Headless export to `out/mypkg.html` (add `-s /out/mypkg.png` for an image):
-
-```bash
-docker run --rm --platform linux/amd64 -e PKG_NAME=mypkg \
-  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
-  pkg-visualizer --headless
-```
-
-Any other `pkg-visualizer` options go after the image name. With Docker Compose:
-
-```bash
-PKG=/path/to/package PKG_NAME=mypkg docker compose -f docker/docker-compose.yml up
-```
-
-The VNC server has no password, so the port is published on `127.0.0.1` only.
+| Option | Default | Description |
+|---|---|---|
+| `--package_path`, `-k` | `./pkg_visualizer` | Root directory of the Python package to visualize. |
+| `--save_path`, `-s` | package directory name | Output path. In the GUI it fills the **Save Path** box. With `--headless` its suffix (`.html`, `.png`, `.jpg`) picks the format. |
+| `--width`, `-w` | 1200 | Window width in pixels. Also the image width for headless PNG/JPG. |
+| `--height`, `-t` | 800 | Window height in pixels. Also the image height for headless PNG/JPG. |
+| `--full` | off | Render methods, functions and class connectors, and draw the stem. |
+| `--save_elements`, `-e` | none | Write the parsed classes, methods and functions to this JSON file. |
+| `--headless` | off | Render off-screen, write `--save_path`, and exit. |
 
 ### Picking and interacting with the scene
 
@@ -146,14 +126,70 @@ docstring in the docstring popup window. If you can't see the object spin the ca
 
 - **Docstring Formatting**: Python docstrings are converted to Markdown for better readability using regex-based parsing.
 
+## Docker
+
+The image runs the same two modes as a direct install. By default it runs the GUI on a virtual display and serves it to your browser with noVNC. With `--headless` it writes one file and exits. Mount the package to visualize at `/pkg` (read-only is fine) and an output directory at `/out`.
+
+The image is not on Docker Hub; build it locally.
+
+### Apple Silicon
+
+The image is `linux/amd64` because PyQt5 publishes Linux wheels for x86_64 only. In Docker Desktop, turn on **Settings > General > Use Rosetta for x86_64/amd64 emulation on Apple Silicon**. Under the default QEMU emulation, rendering aborts with `LLVM ERROR: 64-bit code requested on a subtarget that doesn't support it`.
+
+### Build
+
+From the repository root:
+
+```bash
+docker build --platform linux/amd64 -t pkg-visualizer .
+```
+
+### GUI in the browser
+
+```bash
+docker run --rm -it --platform linux/amd64 -p 127.0.0.1:6080:6080 \
+  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
+  pkg-visualizer
+```
+
+Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and click **Visualize Package**. **Save View** writes into `/out`, which is `./out` on the host. The **Save Path** box starts as `PKG_NAME` (add `-e PKG_NAME=mypkg`; the default is `package`). Press Ctrl-C in the terminal to stop the container.
+
+### Headless export
+
+```bash
+docker run --rm --platform linux/amd64 -e PKG_NAME=mypkg \
+  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
+  pkg-visualizer --headless
+```
+
+This writes `out/mypkg.html`. The container cannot see the host directory name, so `PKG_NAME` sets the output name; without it the file is `out/package.html`. For an image, add `-s /out/mypkg.png`. Other `pkg-visualizer` options, such as `--full`, go after the image name.
+
+### Docker Compose
+
+`docker/docker-compose.yml` runs the GUI. From the repository root:
+
+```bash
+PKG=/path/to/package docker compose -f docker/docker-compose.yml up
+```
+
+`PKG` defaults to this project's `pkg_visualizer` directory. Saved files go to `docker/out` unless you set `OUT`.
+
+### Notes
+
+- The VNC server has no password, so port 6080 is published on `127.0.0.1` only.
+- The virtual screen is 1920x1200. Change it with `-e SCREEN_GEOMETRY=2560x1440x24`.
+
 ## Examples
 
 The `examples` directory contains pre-rendered HTML visualizations of several popular Python projects:
 
 - Flask
 - Matplotlib
+- Panel
+- personal_agent
 - ProteusPy
 - Requests
+- scikit-learn
 - Seaborn
 - SymPy
 - TensorFlow
