@@ -130,18 +130,22 @@ docstring in the docstring popup window. If you can't see the object spin the ca
 
 The image runs the same two modes as a direct install. By default it runs the GUI on a virtual display and serves it to your browser with noVNC. With `--headless` it writes one file and exits. Mount the package to visualize at `/pkg` (read-only is fine) and an output directory at `/out`.
 
-The image is not on Docker Hub; build it locally.
+The image is published on Docker Hub as [`egsuchanek/pkg-visualizer`](https://hub.docker.com/r/egsuchanek/pkg-visualizer).
 
 ### Apple Silicon
 
 The image is `linux/amd64` because PyQt5 publishes Linux wheels for x86_64 only. In Docker Desktop, turn on **Settings > General > Use Rosetta for x86_64/amd64 emulation on Apple Silicon**. Under the default QEMU emulation, rendering aborts with `LLVM ERROR: 64-bit code requested on a subtarget that doesn't support it`.
 
-### Build
-
-From the repository root:
+### Get the image
 
 ```bash
-docker build --platform linux/amd64 -t pkg-visualizer .
+docker pull --platform linux/amd64 egsuchanek/pkg-visualizer
+```
+
+Or build it from the repository root:
+
+```bash
+docker build --platform linux/amd64 -t egsuchanek/pkg-visualizer .
 ```
 
 ### GUI in the browser
@@ -149,7 +153,7 @@ docker build --platform linux/amd64 -t pkg-visualizer .
 ```bash
 docker run --rm -it --platform linux/amd64 -p 127.0.0.1:6080:6080 \
   -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
-  pkg-visualizer
+  egsuchanek/pkg-visualizer
 ```
 
 Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and click **Visualize Package**. **Save View** writes into `/out`, which is `./out` on the host. The **Save Path** box starts as `PKG_NAME` (add `-e PKG_NAME=mypkg`; the default is `package`). Press Ctrl-C in the terminal to stop the container.
@@ -159,7 +163,7 @@ Open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale> and click **Vis
 ```bash
 docker run --rm --platform linux/amd64 -e PKG_NAME=mypkg \
   -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
-  pkg-visualizer --headless
+  egsuchanek/pkg-visualizer --headless
 ```
 
 This writes `out/mypkg.html`. The container cannot see the host directory name, so `PKG_NAME` sets the output name; without it the file is `out/package.html`. For an image, add `-s /out/mypkg.png`. Other `pkg-visualizer` options, such as `--full`, go after the image name.
