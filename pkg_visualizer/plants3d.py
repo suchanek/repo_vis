@@ -10,7 +10,6 @@ Dependencies:
     numpy, pyvista, pyvistaqt, PyQt5
 
 Author: Eric G. Suchanek, PhD.
-Last updated: 2025-05-09 19:24:35
 """
 
 import argparse

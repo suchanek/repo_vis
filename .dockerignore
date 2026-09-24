@@ -1,8 +1,14 @@
-*
-!pyproject.toml
-!poetry.lock
-!pkg_visualizer/
-!docker/entrypoint.sh
-**/__pycache__
-!README.md
-!LICENSE
+# Deny list rather than an allow list ("*" plus "!path"): Apple's
+# `container build` rejects negated patterns with "changes out of order".
+.git/
+.venv/
+.claude/
+.vscode/
+.pytest_cache/
+dist/
+examples/
+out/
+docker/out/
+*.html
+**/__pycache__/
+**/.DS_Store
