@@ -1,0 +1,19 @@
+# GUI mode, from the repo root:
+#   PKG=/path/to/package docker compose -f docker/docker-compose.yml up
+# then open http://localhost:6080/vnc.html?autoconnect=1&resize=scale
+# Saved files land in docker/out unless OUT is set.
+services:
+  pkg-visualizer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: pkg-visualizer:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:6080:6080"
+    environment:
+      - PKG_NAME=${PKG_NAME:-package}
+    volumes:
+      - ${PKG:-../pkg_visualizer}:/pkg:ro
+      - ${OUT:-./out}:/out
+    shm_size: 1g

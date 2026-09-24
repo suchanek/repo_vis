@@ -21,6 +21,7 @@ Last Modified: 2025-05-24 18:53:10
 
 import ast
 import gc
+import json
 import logging
 import os
 import platform
@@ -90,12 +91,16 @@ def parse_file(file_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
     return elements
 
 
-def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]]]]:
+def collect_elements(
+    repo_path: str, save_path: Optional[str] = None
+) -> List[Dict[str, Union[str, int, List[str]]]]:
     """
     Collect class and function elements from all Python files in a repository.
 
     :param repo_path: Path to the repository to analyze.
     :type repo_path: str
+    :param save_path: Optional path to save the collected elements as a JSON file.
+    :type save_path: Optional[str]
     :return: A list of dictionaries containing class and function details.
     :rtype: List[Dict[str, Union[str, int, List[str]]]]
     """
@@ -106,7 +111,7 @@ def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]
         # Skip .venv directory
         if '.venv' in dirs:
             dirs.remove('.venv')  # This modifies dirs in-place to prevent os.walk from traversing into .venv
-            
+
         for file in files:
             if file.endswith(".py"):
                 file_elements: List[Dict[str, Union[str, int, List[str]]]] = parse_file(
@@ -122,6 +127,15 @@ def collect_elements(repo_path: str) -> List[Dict[str, Union[str, int, List[str]
                     ):
                         seen_functions.add(elem["name"])
                         elements.append(elem)
+
+    if save_path is not None:
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                json.dump(elements, f, indent=2, default=str)
+            logger.info("Elements saved to %s", save_path)
+        except OSError as e:
+            logger.error("Failed to save elements to %s: %s", save_path, e)
+
     return elements
 
 

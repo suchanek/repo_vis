@@ -1,0 +1,8 @@
+*
+!pyproject.toml
+!poetry.lock
+!pkg_visualizer/
+!docker/entrypoint.sh
+**/__pycache__
+!README.md
+!LICENSE

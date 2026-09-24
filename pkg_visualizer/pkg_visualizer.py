@@ -27,6 +27,7 @@ Last modified: 2025-05-24 22:43:36
 import argparse
 import atexit
 import gc
+import json
 import logging
 import os
 import sys
@@ -38,8 +39,13 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import param
 import pyvista as pv
-from .find_red_bounding_box import remove_all_red_actors
 from markdown import markdown
+
+from .find_red_bounding_box import remove_all_red_actors
+
+# On macOS, setting this can avoid Qt/Metal related segfaults in some PyQt builds.
+if sys.platform == "darwin":
+    os.environ.setdefault("QT_MAC_WANTS_LAYER", "1")
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
@@ -63,6 +69,7 @@ from pyvistaqt import QtInteractor
 
 # from rich import print as rprint
 from rich.logging import RichHandler
+
 from .utility import (
     collect_elements,
     fibonacci_sphere,
@@ -2176,8 +2183,72 @@ def parse_arguments():
         default=False,
         help="Enable full rendering mode: always render class connectors and do not reduce geometric complexity.",
     )
+    parser.add_argument(
+        "--save_elements",
+        "-e",
+        type=str,
+        help="Path to save the parsed package elements as a JSON file.",
+        required=False,
+        default=None,
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Render off-screen and write the visualization to --save_path (html, png or jpg), then exit without opening a window.",
+    )
 
     return parser.parse_args()
+
+
+def run_headless(
+    package_path: str, save_path: str, width: int, height: int, full: bool
+) -> int:
+    """
+    Build the visualization off-screen and write it to a file.
+
+    :param package_path: Path to the package to visualize.
+    :param save_path: Output file; its suffix (.html, .png, .jpg) picks the format, default html.
+    :param width: Width of the render window in pixels.
+    :param height: Height of the render window in pixels.
+    :param full: Render in full mode (methods, functions and connectors).
+    :return: Process exit code, 0 on success.
+    """
+    out = Path(save_path)
+    save_format = out.suffix.lstrip(".").lower() or "html"
+    if save_format not in ("html", "png", "jpg"):
+        logger.error("Unsupported save format: %s", save_format)
+        return 2
+    out = out.with_suffix(f".{save_format}")
+
+    plotter = pv.Plotter(off_screen=True, window_size=[width, height])
+    visualizer = PackageVisualizer(
+        plotter=plotter, package_path=package_path, full=full
+    )
+    if not visualizer.elements:
+        logger.error("%s", visualizer.status)
+        return 1
+    if full:
+        visualizer.render_methods = True
+        visualizer.include_functions = True
+    visualizer.save_format = save_format
+    visualizer.save_path = str(out)
+    visualizer.visualize()
+    if visualizer.status.startswith("Error"):
+        logger.error("%s", visualizer.status)
+        return 1
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if save_format == "html":
+        plotter.export_html(out)
+    else:
+        plotter.add_text(
+            visualizer.old_title, position="upper_edge", font_size=12, color="black"
+        )
+        plotter.screenshot(out, window_size=[width, height])
+    plotter.close()
+    logger.info("Visualization saved to %s", out)
+    return 0
 
 
 def main():
@@ -2193,6 +2264,11 @@ def main():
         if args.save_path
         else os.path.basename(os.path.normpath(package_path))
     )
+
+    if args.headless:
+        sys.exit(
+            run_headless(package_path, save_path, args.width, args.height, args.full)
+        )
 
     app: QApplication = QApplication([])
     app.setApplicationName("PkgVisualizer")
@@ -2212,6 +2288,14 @@ def main():
         # Override rendering settings for full mode
         window.visualizer.render_methods = True
         window.visualizer.include_functions = True
+
+    if args.save_elements:
+        try:
+            with open(args.save_elements, "w", encoding="utf-8") as f:
+                json.dump(window.visualizer.elements, f, indent=2, default=str)
+            logger.info("Elements saved to %s", args.save_elements)
+        except OSError as e:
+            logger.error("Failed to save elements to %s: %s", args.save_elements, e)
 
     window.run()
 

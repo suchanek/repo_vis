@@ -2,8 +2,8 @@
 
 `pkg_visualizer` is a Python-based application that visualizes the structure of Python packages in 3D. It provides an interactive and dynamic way to explore Classes, Methods, and Functions within a package. Built using PyVista and PyQt5, the tool is designed for developers and researchers who want to gain insights into codebases visually. The `examples` directory contains exported HTML snapshots of several popular Python repositories.
 
-**Version:** 0.1.0  
-**Last Updated:** 2025-05-23  
+**Version:** 0.1.1  
+**Last Updated:** 2025-05-12  
 **Author:** Eric G. Suchanek, PhD
 
 ## Features
@@ -91,6 +91,45 @@ poetry run pkg-visualizer \
 - **--save_path**: (Optional) Base save path (without extension). The tool will append `.html`, `.png`, or `.jpg` depending on the chosen format.
 - **--width**: (Optional) Width of the visualization window (default: 1200).
 - **--height**: (Optional) Height of the visualization window (default: 800).
+- **--full**: (Optional) Render methods, functions and class connectors, and draw the stem.
+- **--save_elements**: (Optional) Write the parsed classes, methods and functions to a JSON file.
+- **--headless**: (Optional) Render off-screen, write the file named by `--save_path`, and exit without opening a window. The suffix (`.html`, `.png`, `.jpg`) selects the format; the default is HTML.
+
+## Docker
+
+The image runs the GUI on a virtual display and serves it to the browser with noVNC, or renders a file with `--headless`. Mount the package to visualize at `/pkg` and an output directory at `/out`.
+
+The image is `linux/amd64` because PyQt5 publishes Linux wheels for x86_64 only. On Apple Silicon, turn on **Settings > General > Use Rosetta for x86_64/amd64 emulation** in Docker Desktop; under QEMU emulation the Mesa renderer aborts with `LLVM ERROR: 64-bit code requested on a subtarget that doesn't support it`.
+
+Build from the repository root:
+
+```bash
+docker build --platform linux/amd64 -t pkg-visualizer .
+```
+
+GUI in the browser, then open <http://localhost:6080/vnc.html?autoconnect=1&resize=scale>:
+
+```bash
+docker run --rm -it --platform linux/amd64 -p 127.0.0.1:6080:6080 \
+  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
+  pkg-visualizer
+```
+
+Headless export to `out/mypkg.html` (add `-s /out/mypkg.png` for an image):
+
+```bash
+docker run --rm --platform linux/amd64 -e PKG_NAME=mypkg \
+  -v /path/to/package:/pkg:ro -v "$PWD/out:/out" \
+  pkg-visualizer --headless
+```
+
+Any other `pkg-visualizer` options go after the image name. With Docker Compose:
+
+```bash
+PKG=/path/to/package PKG_NAME=mypkg docker compose -f docker/docker-compose.yml up
+```
+
+The VNC server has no password, so the port is published on `127.0.0.1` only.
 
 ### Picking and interacting with the scene
 

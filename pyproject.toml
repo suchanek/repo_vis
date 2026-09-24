@@ -1,28 +1,34 @@
-[tool.poetry]
+[project]
 name = "pkg-visualizer"
-version = "0.1.0"
-description = "A Python application for visualizing Python packagesin 3D using PyVistaQt"
-authors = ["Eric G. Suchanek, Ph.D <suchanek@mac.com>"]
-license = "GPL"
+version = "0.1.1"
+description = "A Python application for visualizing Python packages in 3D using PyVistaQt"
+authors = [{ name = "Eric G. Suchanek, Ph.D", email = "suchanek@mac.com" }]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "asttokens",
+    "numpy",
+    "panel",
+    "param",
+    "pyvista[jupyter]>=0.45.0,<0.46.0",
+    "rich>=14.0.0,<15.0.0",
+    "pyqt5>=5.15.11,<6.0.0",
+    "pyvistaqt>=0.11.2,<0.12.0",
+    "vtk>=9.4.2,<10.0.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.12"
-asttokens = "*"
-numpy = "*"
-panel = "*"
-param = "*"
-pyvista = {extras = ["jupyter"], version = "^0.45.0"}
-rich = "^14.0.0"
-pyqt5 = "^5.15.11"
-pyvistaqt = "^0.11.2"
-vtk = "^9.4.2"
+[project.scripts]
+pkg-visualizer = "pkg_visualizer.pkg_visualizer:main"
+repovis = "pkg_visualizer.pkg_visualizer:main"
+
+[tool.poetry]
+packages = [{ include = "pkg_visualizer" }]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
 
-[tool.poetry.scripts]
-pkg-visualizer = "pkg_visualizer.pkg_visualizer:main"
-
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
